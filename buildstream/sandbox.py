@@ -37,6 +37,7 @@ CAPTURE = subprocess.PIPE
 # Special value for 'stderr' parameter to indicate 'forward to stdout'.
 STDOUT = subprocess.STDOUT
 
+MOUNT_TYPES = ['dev','host-dev','tmpfs','proc']
 
 class Sandbox():
 
@@ -56,9 +57,19 @@ class Sandbox():
         self.stderr = CAPTURE
         """Standard error stream is captured by default"""
 
+        self.network_enable = False
+        """Boolean flag for if network resources can be utilised"""
+
+        self.namespace_uid = None
+        self.namespace_gid = None
+
+        self._mounts = []
+        """List of mounts, each in the format (src, dest, type, writeable)"""
+
     def run(self, command):
         """Run the sandbox
 
+        throws exception is bwrap not found
         :return:
         """
 
@@ -99,6 +110,7 @@ class Sandbox():
 
         return exit, out, err
 
+
     def setCwd(self, cwd):
         """
 
@@ -110,6 +122,24 @@ class Sandbox():
         self.cwd=cwd
 
         return
+
+    def setMounts(self, mnt_list=[], global_write=False, append=False):
+
+        mounts=[]
+        # Process mounts one by one
+        for mnt in mnt_list:
+            host_dir = mnt.get('src')
+            target_dir = mnt.get('dest')
+            mnt_type = mnt.get('type', None)
+            writable = global_write or mnt.get('writable', False)
+
+            mounts.append((host_dir, target_dir, mnt_type, writable))
+
+        if append:
+            self._mounts.extend(mounts)
+        else:
+            self._mounts = mounts
+
 
     def _getBinary(self):
         """Get the absolute path of a program
@@ -139,13 +169,41 @@ class Sandbox():
         return program_path
 
     def _createMountPoints(self):
-        pass
+        """
+        Creates any mount points that do not currently exist
+        but have ben specified in _mounts
+        :return:
+        """
+
+        for mnt in self._mounts:
+            #(host_dir, target_dir, mnt_type, writable)
+            target_dir = mnt[1]
+            stripped=os.path.abspath(target_dir).lstrip('/')
+            path = os.path.join(self.fs_root, stripped)
+
+            if not os.path.exists(path):
+                os.makedirs(path)
+
 
     def _isMountWritable(self, mnt):
         pass
 
     def _processNetworkConfig(self):
-        pass
+        if not self.network_enable:
+            return ['--unshare-net']
+        else
+            return []
+
+    def _userNamespace(self):
+        """
+        Set user namespace settings if set
+        :return:
+        """
+
+        if self.namespace_uid is not None:
+            return ['--unshare-user', '--uid', self.namespace_uid, '--gid', self.namespace_gid]
+        else:
+            return []
 
     def _run_command(self, argv, stdout, stderr, cwd=None, env=None):
         """Wrapper around subprocess.Popen() with common settings.
