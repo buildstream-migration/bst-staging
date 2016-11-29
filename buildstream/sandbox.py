@@ -37,7 +37,7 @@ CAPTURE = subprocess.PIPE
 # Special value for 'stderr' parameter to indicate 'forward to stdout'.
 STDOUT = subprocess.STDOUT
 
-MOUNT_TYPES = ['dev','host-dev','tmpfs','proc']
+MOUNT_TYPES = ['dev', 'host-dev', 'tmpfs', 'proc']
 
 class Sandbox():
 
@@ -61,14 +61,20 @@ class Sandbox():
         """Boolean flag for if network resources can be utilised"""
 
         self.namespace_uid = None
+        """User id to use if we are changing the namespace"""
         self.namespace_gid = None
+        """Group id to use if we are changing the namespace"""
 
         self._mounts = []
         """List of mounts, each in the format (src, dest, type, writeable)"""
 
         self.rootRo = True
+        """Boolean flag for remounting the root filesystem as read-only after
+        additional mounts have been added.
+        """
 
         self.env = kwargs.get('env', {})
+        """Environment variables to use for the sandbox. By default env is not shared"""
 
     def run(self, command):
         """Runs a command inside the sandbox environment
@@ -124,14 +130,28 @@ class Sandbox():
         """
 
         # TODO check valid path of `cwd`
-        self.cwd=cwd
-        return
+        self.cwd = cwd
 
     def setUserNamespace(self, uid, gid):
+        """Set the uid and gid to use in the new user namespace
+
+        Args:
+            uid : uid to use, e.g. 0 for root
+            gid : god to use, e.g. 0 for root
+        """
+
         self.namespace_uid = uid
         self.namespace_gid = gid
 
     def setEnv(self, env):
+        """Sets the env variables for the sandbox
+
+        Args:
+            env (dict): Dictionary of the enviroment variables to use. An empty dict will
+                clear all envs
+        Raises :class'`TypeError` if env is not a dict.
+        """
+
         # ENV needs to be a dict
         if type(env) is dict:
             self.env = env
@@ -171,10 +191,8 @@ class Sandbox():
             self._mounts = mounts
 
     def _getBinary(self):
-        """Get the absolute path of a program
+        """Get the absolute path of a program"""
 
-        :return:
-        """
         program_name = "bwrap"
 
         search_path = os.environ.get('PATH')
@@ -201,7 +219,6 @@ class Sandbox():
         """
         Creates any mount points that do not currently exist
         but have ben specified in _mounts
-        :return:
         """
 
         for mnt in self._mounts:
