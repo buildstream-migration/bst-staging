@@ -41,12 +41,12 @@ MOUNT_TYPES = ['dev','host-dev','tmpfs','proc']
 
 class Sandbox():
 
-    def __init__(self):
+    def __init__(self, **kwargs):
 
-        self.fs_root = "/"
+        self.fs_root = kwargs.get('fs_root', "/")
         """Path of the host that we wish to map as '/' in the sandbox"""
 
-        self.cwd = None
+        self.cwd = kwargs.get('cwd', None)
         """Current working directory we want to start the sandbox in. If
         None then cwd is inherited from the caller's CWD
         """
@@ -65,6 +65,10 @@ class Sandbox():
 
         self._mounts = []
         """List of mounts, each in the format (src, dest, type, writeable)"""
+
+        self.rootRo = True
+
+        self.env = kwargs.get('env', {})
 
     def run(self, command):
         """Runs a command inside the sandbox environment
@@ -102,6 +106,7 @@ class Sandbox():
 
         # Handles the ro and rw mounts
         bwrap_command += self._processMounts()
+        bwrap_command += self._remountRootRo()
 
         # Set UID and GUI
         bwrap_command += self._userNamespace()
@@ -110,7 +115,6 @@ class Sandbox():
         exitcode, out, err = self._run_command(argv, self.stdout, self.stderr, env=self.env)
 
         return exitcode, out, err
-
 
     def setCwd(self, cwd):
         """Set the CWD for the sandbox
@@ -123,6 +127,16 @@ class Sandbox():
         self.cwd=cwd
         return
 
+    def setUserNamespace(self, uid, gid):
+        self.namespace_uid = uid
+        self.namespace_gid = gid
+
+    def setEnv(self, env):
+        # ENV needs to be a dict
+        if type(env) is dict:
+            self.env = env
+        else:
+            raise TypeError("env is expected to be a dict, not a {}".format(type(env)))
 
     def setMounts(self, mnt_list=[], global_write=False, append=False):
         """Set mounts for the sandbox to use
@@ -155,7 +169,6 @@ class Sandbox():
             self._mounts.extend(mounts)
         else:
             self._mounts = mounts
-
 
     def _getBinary(self):
         """Get the absolute path of a program
@@ -192,7 +205,7 @@ class Sandbox():
         """
 
         for mnt in self._mounts:
-            #(host_dir, target_dir, mnt_type, writable)
+            # (host_dir, target_dir, mnt_type, writable)
             target_dir = mnt[1]
             stripped=os.path.abspath(target_dir).lstrip('/')
             path = os.path.join(self.fs_root, stripped)
@@ -200,14 +213,48 @@ class Sandbox():
             if not os.path.exists(path):
                 os.makedirs(path)
 
+    def _processMounts(self):
+        mount_args = []
 
-    def _isMountWritable(self, mnt):
-        pass
+        for mnt in self._mounts:
+            src, dest, type, wr = mnt
+
+            ## Do special mounts first
+            if type == "proc":
+                mount_args.extend(['--proc', dest])
+
+            # Note, tmpfs data can not be recovered between instances
+            elif type == "tmpfs":
+                mount_args.extend(['--tmpfs', dest])
+
+            # Create a separate dev mount to the host
+            elif type == "dev":
+                mount_args.extend(['--dev-bind', src, dest])
+
+            # Share a host dev mount
+            elif type == "host-dev":
+                mount_args.extend(['--dev', dest])
+
+            ## Normal bind mounts
+            elif wr:
+                mount_args.extend(['--bind', src, dest])
+
+            # Else read-only mount
+            else:
+                mount_args.extend(['--bind', src, dest])
+
+        return mount_args
+
+    def _remountRootRo(self):
+        if self.rootRo:
+            return []
+        else:
+            return ["--remount-ro", "/"]
 
     def _processNetworkConfig(self):
         if not self.network_enable:
             return ['--unshare-net']
-        else
+        else:
             return []
 
     def _userNamespace(self):
