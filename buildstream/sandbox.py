@@ -67,10 +67,16 @@ class Sandbox():
         """List of mounts, each in the format (src, dest, type, writeable)"""
 
     def run(self, command):
-        """Run the sandbox
+        """Runs a command inside the sandbox environment
 
-        throws exception is bwrap not found
-        :return:
+        Args:
+            command (string): The command to run in the sandboxed environment
+
+        Raises:
+            :class'`.ProgramNotfound` If bwrap(bubblewrap) binary can not be found
+
+        Returns:
+            exitcode, stdout, stderr
         """
 
         # We want command args as a list of strings
@@ -92,38 +98,48 @@ class Sandbox():
             bwrap_command.extend(['--chdir', self.cwd])
 
         # do pre checks on mounts
-        ## TODO collect mounts
-        #
         self._createMountPoints()
 
         # Handles the ro and rw mounts
-        bwrap_command += self._processMounts(self.fs_root, extra_mounts,
-                                        filesystem_writable_paths)
+        bwrap_command += self._processMounts()
 
         # Set UID and GUI
         bwrap_command += self._userNamespace()
-        #bwrap_command.extend(['--unshare-user', '--uid', '0', '--gid', '0'])
 
         argv = bwrap_command + command
+        exitcode, out, err = self._run_command(argv, self.stdout, self.stderr, env=self.env)
 
-        exit, out, err = self._run_command(argv, self.stdout, self.stderr, env=env)
-
-        return exit, out, err
+        return exitcode, out, err
 
 
     def setCwd(self, cwd):
-        """
+        """Set the CWD for the sandbox
 
-        :param cwd:
-        :return:
+        Args:
+            cwd (string): Path to desired working directory when the sandbox is entered
         """
 
         # TODO check valid path of `cwd`
         self.cwd=cwd
-
         return
 
+
     def setMounts(self, mnt_list=[], global_write=False, append=False):
+        """Set mounts for the sandbox to use
+
+        Args:
+            mnt_list (list): List of dicts describing mounts. Dict is in the format {'src','dest','type','writable'}
+                Only 'src' and 'dest' are required.
+            global_write (boolean): Set all mounts given as writable (overrides setting in dict)
+            append (boolean): If set, multiple calls to `setMounts` extends the list of mounts.
+                Else they are overridden.
+
+        The mount dict is in the format {'src','dest','type','writable'}.
+            - src : Path of the mount on the HOST
+            - dest : Path we wish to mount to on the TARGET
+            - type : (optional) Some mounts are special such as dev, proc and tmp, and need to be tagged accordingly
+            - writable : (optional) Boolean value to make mount writable instead of read-only
+        """
 
         mounts=[]
         # Process mounts one by one
