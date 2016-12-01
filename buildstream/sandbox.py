@@ -51,10 +51,10 @@ class Sandbox():
         None then cwd is inherited from the caller's CWD
         """
 
-        self.stdout = CAPTURE
+        self.stdout = kwargs.get('stdout', CAPTURE)
         """Standard out stream is captured by default"""
 
-        self.stderr = CAPTURE
+        self.stderr = kwargs.get('stderr', CAPTURE)
         """Standard error stream is captured by default"""
 
         self.network_enable = False
@@ -80,7 +80,7 @@ class Sandbox():
         """Runs a command inside the sandbox environment
 
         Args:
-            command (string): The command to run in the sandboxed environment
+            command (List[str]): The command to run in the sandboxed environment
 
         Raises:
             :class'`.ProgramNotfound` If bwrap(bubblewrap) binary can not be found
@@ -190,6 +190,9 @@ class Sandbox():
         else:
             self._mounts = mounts
 
+    def setNetworkEnable(self, isEnabled=True):
+        self.network_enable=isEnabled
+
     def _getBinary(self):
         """Get the absolute path of a program"""
 
@@ -258,7 +261,7 @@ class Sandbox():
 
             # Else read-only mount
             else:
-                mount_args.extend(['--bind', src, dest])
+                mount_args.extend(['--ro-bind', src, dest])
 
         return mount_args
 
