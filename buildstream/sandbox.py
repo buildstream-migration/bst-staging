@@ -76,6 +76,8 @@ class Sandbox():
         self.env = kwargs.get('env', {})
         """Environment variables to use for the sandbox. By default env is not shared"""
 
+        self._debug=True
+
     def run(self, command):
         """Runs a command inside the sandbox environment
 
@@ -118,6 +120,8 @@ class Sandbox():
         bwrap_command += self._userNamespace()
 
         argv = bwrap_command + command
+        if self._debug:
+            print(" ".join(argv))
         exitcode, out, err = self._run_command(argv, self.stdout, self.stderr, env=self.env)
 
         return exitcode, out, err
@@ -178,10 +182,14 @@ class Sandbox():
         mounts=[]
         # Process mounts one by one
         for mnt in mnt_list:
-            host_dir = mnt.get('src')
-            target_dir = mnt.get('dest')
+            host_dir = mnt.get('src', None)
+            target_dir = mnt.get('dest', None)
             mnt_type = mnt.get('type', None)
             writable = global_write or mnt.get('writable', False)
+
+            # Host dir should be an absolute path
+            if host_dir is not None and not os.path.isabs(host_dir):
+                host_dir = os.path.join(self.fs_root, host_dir)
 
             mounts.append((host_dir, target_dir, mnt_type, writable))
 
@@ -267,9 +275,9 @@ class Sandbox():
 
     def _remountRootRo(self):
         if self.rootRo:
-            return []
-        else:
             return ["--remount-ro", "/"]
+        else:
+            return []
 
     def _processNetworkConfig(self):
         if not self.network_enable:

@@ -1,6 +1,10 @@
 import os
 import pytest
 
+from programs import (
+    file_is_writable_test_program, file_or_directory_exists_test_program,
+    session_tmpdir)
+
 from buildstream.sandbox import *
 
 DATA_DIR = os.path.join(
@@ -47,7 +51,7 @@ def test_output_redirection(tmpdir):
         assert errlog.read() == 'xyzzy\n'
 
     with open(outlog_fp, 'w') as outlog, open(errlog_fp, 'w') as errlog:
-        sandbox = Sandbox(stdout=outlog, stderr=sandbox.STDOUT)
+        sandbox = Sandbox(stdout=outlog, stderr=STDOUT)
         exit = sandbox.run(['sh', '-c', 'echo abcde; echo xyzzy >&2'])
 
     with open(outlog_fp) as outlog:
@@ -68,7 +72,7 @@ def test_environment():
     exit, out, err = sandbox.run(['env'])
 
     assert exit == 0
-    assert out.decode('unicode-escape') == 'foo=bar\n'
+    assert out.decode('unicode-escape') == 'foo=bar\nPWD=%s\n' % (os.getcwd(),)
     assert err.decode('unicode-escape') == ''
 
 
@@ -84,6 +88,8 @@ def test_isolated_network():
 
 # TODO test_network()
 
+# TODO test_uid() test_gid()
+
 
 class TestMounts(object):
     @pytest.fixture()
@@ -98,9 +104,9 @@ class TestMounts(object):
 
         return sandbox_path
 
-    def test_mount_proc(self, sandboxlib_executor, mounts_test_sandbox):
+    def test_mount_proc(self, mounts_test_sandbox):
         sandbox = Sandbox(fs_root=str(mounts_test_sandbox))
-        sandbox.setMounts([(None, '/proc', 'proc')])
+        sandbox.setMounts([{'dest': '/proc', 'type': 'proc'}])
 
         exit, out, err = sandbox.run(
             ['/bin/test-file-or-directory-exists', '/proc'])
@@ -109,9 +115,9 @@ class TestMounts(object):
         assert out.decode('unicode-escape') == "/proc exists"
         assert exit == 0
 
-    def test_mount_tmpfs(self, sandboxlib_executor, mounts_test_sandbox):
+    def test_mount_tmpfs(self, mounts_test_sandbox):
         sandbox = Sandbox(fs_root=str(mounts_test_sandbox))
-        sandbox.setMounts([(None, '/dev/shm', 'tmpfs')])
+        sandbox.setMounts([{'dest': '/dev/shm', 'type': 'tmpfs'}])
 
         exit, out, err = sandbox.run(
             ['/bin/test-file-or-directory-exists', '/dev/shm'])
@@ -119,23 +125,6 @@ class TestMounts(object):
         assert err.decode('unicode-escape') == ''
         assert out.decode('unicode-escape') == "/dev/shm exists"
         assert exit == 0
-
-    def test_invalid_mount_specs(self, sandboxlib_executor):
-        sandbox = Sandbox()
-
-        with pytest.raises(AssertionError) as excinfo:
-            sandbox.setMounts([('proc', None, 'tmpfs')])
-            exit, out, err = sandbox.run(['true'])
-
-            assert excinfo.value.message == (
-                "Mount point empty in mount entry ('proc', None, 'tmpfs')")
-
-        with pytest.raises(AssertionError) as excinfo:
-            sandbox.setMounts([('proc', 'tmpfs')])
-            exit, out, err = sandbox.run(['true'])
-
-            assert excinfo.value.message == (
-                "Invalid mount entry in 'extra_mounts': ('proc', 'tmpfs')")
 
 
 class TestWriteablePaths(object):
@@ -155,9 +144,10 @@ class TestWriteablePaths(object):
 
         return sandbox_path
 
-    def test_none_writable(self, sandboxlib_executor,
-                           writable_paths_test_sandbox):
+    def test_none_writable(self, writable_paths_test_sandbox):
         sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox._debug = True
+
         exit, out, err = sandbox.run(
             ['/bin/test-file-is-writable', '/data/1/canary'])
 
@@ -166,96 +156,50 @@ class TestWriteablePaths(object):
             "Couldn't open /data/1/canary for writing."
         assert exit == 1
 
-    def test_some_writable(self, sandboxlib_executor,
-                           writable_paths_test_sandbox):
-        if sandboxlib_executor == sandboxlib.chroot:
-            pytest.xfail("chroot backend doesn't support read-only paths.")
+    def test_some_writable(self, writable_paths_test_sandbox):
+        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox.setMounts([{'src': 'data', 'dest': '/data', 'writable': True}])
 
         exit, out, err = sandbox.run(
-            ['/bin/test-file-is-writable', '/data/1/canary'],
-            filesystem_root=str(writable_paths_test_sandbox),
-            filesystem_writable_paths=['/data/1'])
+            ['/bin/test-file-is-writable', '/data/1/canary'])
 
         assert err.decode('unicode-escape') == ''
         assert out.decode('unicode-escape') == \
             "Wrote data to /data/1/canary."
         assert exit == 0
 
-    def test_all_writable(self, sandboxlib_executor,
-                          writable_paths_test_sandbox):
+    def test_all_writable(self, writable_paths_test_sandbox):
+        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox.setMounts([{'src': 'data', 'dest': '/data'}], global_write=True)
+
         exit, out, err = sandbox.run(
-            ['/bin/test-file-is-writable', '/data/1/canary'],
-            filesystem_root=str(writable_paths_test_sandbox),
-            filesystem_writable_paths='all')
+            ['/bin/test-file-is-writable', '/data/1/canary'])
 
         assert err.decode('unicode-escape') == ''
         assert out.decode('unicode-escape') == \
             "Wrote data to /data/1/canary."
         assert exit == 0
 
-    def test_mount_point_not_writable(self, sandboxlib_executor,
-                                      writable_paths_test_sandbox):
-        if sandboxlib_executor == sandboxlib.chroot:
-            pytest.xfail("chroot backend doesn't support read-only paths.")
+    def test_all_writable_ignore_override(self, writable_paths_test_sandbox):
+        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox.setMounts([{'src': 'data', 'dest': '/data', 'writable': False}], global_write=True)
 
         exit, out, err = sandbox.run(
-            ['/bin/test-file-is-writable', '/data/1/canary'],
-            filesystem_root=str(writable_paths_test_sandbox),
-            filesystem_writable_paths='none')
+            ['/bin/test-file-is-writable', '/data/1/canary'])
+
+        assert err.decode('unicode-escape') == ''
+        assert out.decode('unicode-escape') == \
+            "Wrote data to /data/1/canary."
+        assert exit == 0
+
+    def test_mount_point_not_writable(self, writable_paths_test_sandbox):
+        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox.setMounts([{'src': 'data', 'dest': '/data', 'writable': False}])
+
+        exit, out, err = sandbox.run(
+            ['/bin/test-file-is-writable', '/data/1/canary'])
 
         assert err.decode('unicode-escape') == ''
         assert out.decode('unicode-escape') == \
             "Couldn't open /data/1/canary for writing."
         assert exit == 1
-
-    def test_mount_point_writable(self, sandboxlib_executor,
-                                  writable_paths_test_sandbox):
-        if sandboxlib_executor == sandboxlib.chroot:
-            pytest.xfail("chroot backend doesn't support read-only paths.")
-
-        exit, out, err = sandbox.run(
-            ['/bin/test-file-is-writable', '/data/1/canary'],
-            filesystem_root=str(writable_paths_test_sandbox),
-            filesystem_writable_paths=['/data'])
-
-        assert err.decode('unicode-escape') == ''
-        assert out.decode('unicode-escape') == \
-            "Wrote data to /data/1/canary."
-        assert exit == 0
-
-
-def test_executor_for_platform():
-    '''Simple test of backend autodetection.'''
-    executor = sandboxlib.executor_for_platform()
-    test_output(executor)
-
-def test_sandboxlib_backend_env_var(sandboxlib_executor):
-    executor_name = sandboxlib_executor.__name__.split('.')[-1]
-    os.environ["SANDBOXLIB_BACKEND"] = executor_name
-    executor = sandboxlib.executor_for_platform()
-    assert executor == sandboxlib_executor
-
-def test_sandboxlib_backend_env_var_unknown_executor():
-    executor = sandboxlib.executor_for_platform()
-    os.environ["SANDBOXLIB_BACKEND"] = "unknown"
-    assert executor == sandboxlib.executor_for_platform()
-
-def test_degrade_config_for_capabilities(sandboxlib_executor):
-    '''Simple test of adjusting configuration for a given backend.'''
-    in_config = {
-        'mounts': 'isolated',
-        'network': 'isolated',
-        'filesystem_writable_paths': ['/tmp']
-    }
-
-    out_config = sandboxlib_executor.degrade_config_for_capabilities(
-        in_config, warn=True)
-
-    if sandboxlib_executor == sandboxlib.chroot:
-        assert out_config == {
-            'mounts': 'undefined',
-            'network': 'undefined',
-            'filesystem_writable_paths': 'all'
-        }
-    elif sandboxlib_executor == sandboxlib.linux_user_chroot:
-        assert out_config == in_config
