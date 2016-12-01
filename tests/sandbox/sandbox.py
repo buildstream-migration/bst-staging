@@ -5,7 +5,7 @@ from programs import (
     file_is_writable_test_program, file_or_directory_exists_test_program,
     session_tmpdir)
 
-from buildstream.sandbox import *
+from buildstream._sandboxbwrap import *
 
 DATA_DIR = os.path.join(
     os.path.dirname(os.path.realpath(__file__)),
@@ -16,7 +16,7 @@ DATA_DIR = os.path.join(
 def test_no_output():
     """Test ignoring of stderr/stdout."""
 
-    sandbox = Sandbox(stdout=None, stderr=None)
+    sandbox = _SandboxBwap(stdout=None, stderr=None)
     exit, out, err = sandbox.run(['echo', 'xyzzy'])
 
     assert exit == 0
@@ -25,7 +25,7 @@ def test_no_output():
 
 
 def test_output():
-    sandbox = Sandbox()
+    sandbox = _SandboxBwap()
     exit, out, err = sandbox.run(['echo', 'xyzzy'])
 
     assert exit == 0
@@ -43,7 +43,7 @@ def test_output_redirection(tmpdir):
     outlog_fp = str(tmpdir.join('outlog.txt'))
     errlog_fp = str(tmpdir.join('errlog.txt'))
     with open(outlog_fp, 'w') as outlog, open(errlog_fp, 'w') as errlog:
-        sandbox = Sandbox(stdout=outlog, stderr=errlog)
+        sandbox = _SandboxBwap(stdout=outlog, stderr=errlog)
         exit, _, _ = sandbox.run(['sh', '-c', 'echo abcde; echo xyzzy >&2'])
 
     with open(outlog_fp) as outlog, open(errlog_fp) as errlog:
@@ -51,7 +51,7 @@ def test_output_redirection(tmpdir):
         assert errlog.read() == 'xyzzy\n'
 
     with open(outlog_fp, 'w') as outlog, open(errlog_fp, 'w') as errlog:
-        sandbox = Sandbox(stdout=outlog, stderr=STDOUT)
+        sandbox = _SandboxBwap(stdout=outlog, stderr=STDOUT)
         exit = sandbox.run(['sh', '-c', 'echo abcde; echo xyzzy >&2'])
 
     with open(outlog_fp) as outlog:
@@ -59,7 +59,7 @@ def test_output_redirection(tmpdir):
 
 
 def test_current_working_directory(tmpdir):
-    sandbox = Sandbox(cwd=str(tmpdir))
+    sandbox = _SandboxBwap(cwd=str(tmpdir))
     exit, out, err = sandbox.run(['pwd'])
 
     assert exit == 0
@@ -68,7 +68,7 @@ def test_current_working_directory(tmpdir):
 
 
 def test_environment():
-    sandbox = Sandbox(env={'foo': 'bar'})
+    sandbox = _SandboxBwap(env={'foo': 'bar'})
     exit, out, err = sandbox.run(['env'])
 
     assert exit == 0
@@ -78,7 +78,7 @@ def test_environment():
 
 def test_isolated_network():
     # Network should be disabled by default
-    sandbox = Sandbox()
+    sandbox = _SandboxBwap()
     exit, out, err = sandbox.run(
         ['sh', '-c', 'cat /proc/net/dev | sed 1,2d | cut -f1 -d:'])
 
@@ -105,7 +105,7 @@ class TestMounts(object):
         return sandbox_path
 
     def test_mount_proc(self, mounts_test_sandbox):
-        sandbox = Sandbox(fs_root=str(mounts_test_sandbox))
+        sandbox = _SandboxBwap(fs_root=str(mounts_test_sandbox))
         sandbox.setMounts([{'dest': '/proc', 'type': 'proc'}])
 
         exit, out, err = sandbox.run(
@@ -116,7 +116,7 @@ class TestMounts(object):
         assert exit == 0
 
     def test_mount_tmpfs(self, mounts_test_sandbox):
-        sandbox = Sandbox(fs_root=str(mounts_test_sandbox))
+        sandbox = _SandboxBwap(fs_root=str(mounts_test_sandbox))
         sandbox.setMounts([{'dest': '/dev/shm', 'type': 'tmpfs'}])
 
         exit, out, err = sandbox.run(
@@ -145,7 +145,7 @@ class TestWriteablePaths(object):
         return sandbox_path
 
     def test_none_writable(self, writable_paths_test_sandbox):
-        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox = _SandboxBwap(fs_root=str(writable_paths_test_sandbox))
         sandbox._debug = True
 
         exit, out, err = sandbox.run(
@@ -157,7 +157,7 @@ class TestWriteablePaths(object):
         assert exit == 1
 
     def test_some_writable(self, writable_paths_test_sandbox):
-        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox = _SandboxBwap(fs_root=str(writable_paths_test_sandbox))
         sandbox.setMounts([{'src': 'data', 'dest': '/data', 'writable': True}])
 
         exit, out, err = sandbox.run(
@@ -169,7 +169,7 @@ class TestWriteablePaths(object):
         assert exit == 0
 
     def test_all_writable(self, writable_paths_test_sandbox):
-        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox = _SandboxBwap(fs_root=str(writable_paths_test_sandbox))
         sandbox.setMounts([{'src': 'data', 'dest': '/data'}], global_write=True)
 
         exit, out, err = sandbox.run(
@@ -181,7 +181,7 @@ class TestWriteablePaths(object):
         assert exit == 0
 
     def test_all_writable_ignore_override(self, writable_paths_test_sandbox):
-        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox = _SandboxBwap(fs_root=str(writable_paths_test_sandbox))
         sandbox.setMounts([{'src': 'data', 'dest': '/data', 'writable': False}], global_write=True)
 
         exit, out, err = sandbox.run(
@@ -193,7 +193,7 @@ class TestWriteablePaths(object):
         assert exit == 0
 
     def test_mount_point_not_writable(self, writable_paths_test_sandbox):
-        sandbox = Sandbox(fs_root=str(writable_paths_test_sandbox))
+        sandbox = _SandboxBwap(fs_root=str(writable_paths_test_sandbox))
         sandbox.setMounts([{'src': 'data', 'dest': '/data', 'writable': False}])
 
         exit, out, err = sandbox.run(
