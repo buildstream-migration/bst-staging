@@ -57,6 +57,70 @@ class _SandboxChroot:
         self.fs_root = "/"
         self.cwd = "/"
         self.env = {}
+        self._mounts = []
+
+
+    def setCwd(self, cwd):
+        """Set the CWD for the sandbox
+
+        Args:
+            cwd (string): Path to desired working directory when the sandbox is entered
+        """
+
+        # TODO check valid path of `cwd`
+        self.cwd = cwd
+
+
+    def setEnv(self, env):
+        """Sets the env variables for the sandbox
+
+        Args:
+            env (dict): Dictionary of the enviroment variables to use. An empty dict will
+                clear all envs
+        Raises :class'`TypeError` if env is not a dict.
+        """
+
+        # ENV needs to be a dict
+        if type(env) is dict:
+            self.env = env
+        else:
+            raise TypeError("env is expected to be a dict, not a {}".format(type(env)))
+
+
+    def setMounts(self, mnt_list=[], append=False, **kwargs):
+        """Set mounts for the sandbox to use
+
+        Args:
+            mnt_list (list): List of dicts describing mounts. Dict is in the format {'src','dest','type','writable'}
+                Only 'src' and 'dest' are required.
+            append (boolean): If set, multiple calls to `setMounts` extends the list of mounts.
+                Else they are overridden.
+
+        The mount dict is in the format {'src','dest','type','writable'}.
+            - src : Path of the mount on the HOST
+            - dest : Path we wish to mount to on the TARGET
+            - type :
+            - writable : Not used in this implementation. All chroot mounts are wr
+        """
+
+        mounts = []
+        # Process mounts one by one
+        for mnt in mnt_list:
+            host_dir = mnt.get('src', None)
+            target_dir = mnt.get('dest', None)
+            mnt_type = mnt.get('type', None)
+            writable = None
+
+            # Host dir should be an absolute path
+            if host_dir is not None and not os.path.isabs(host_dir):
+                host_dir = os.path.join(self.fs_root, host_dir)
+
+            mounts.append((host_dir, target_dir, mnt_type, writable))
+
+        if append:
+            self._mounts.extend(mounts)
+        else:
+            self._mounts = mounts
 
     def mount(self, source, path, mount_type, mount_options):
         # We depend on the host system's 'mount' program here, which is a
@@ -157,11 +221,11 @@ class _SandboxChroot:
 
         return new_extra_mounts
 
-    def run(self, command, extra_mounts=None):
+    def run(self, command):
         if type(command) == str:
             command = [command]
 
-        extra_mounts = self.validate_extra_mounts(extra_mounts)
+        extra_mounts = self.validate_extra_mounts(self._mounts)
 
         pipe_parent, pipe_child = multiprocessing.Pipe()
 

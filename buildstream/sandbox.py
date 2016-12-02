@@ -19,17 +19,30 @@
 #        Andrew Leeming <andrew.leeming@codethink.co.uk>
 
 from enum import Enum
+from ._sandboxbwrap import _SandboxBwap
+from ._sandboxchroot import _SandboxChroot
 
 Executors = Enum('chroot', 'bwrap')
 
 class Sandbox:
 
     def __init__(self, executor=Executors.bwrap, **kwargs):
-        self.executor = executor
+        self.executorType = executor
 
+        if executor is Executors.chroot:
+            self.executor = _SandboxChroot()
+        elif executor is Executors.bwrap:
+            self.executor = _SandboxBwap()
 
-    def run(self):
-        if self.executor is Executors.chroot:
-            pass
-        elif self.executor is Executors.bwrap:
-            pass
+    def getExecutor(self):
+        return self.executor
+
+    def setMounts(self, mnt_list=[], global_write=False, append=False):
+        self.executor.setMounts(mnt_list=mnt_list, global_write=global_write,
+                                append=append)
+
+    def run(self, command):
+        # Run command in sandbox and save outputs
+        self.exitcode, self.out, self.err = self.executor.run(command)
+
+        return self.exitcode, self.out, self.err

@@ -176,7 +176,7 @@ class _SandboxBwap():
         else:
             raise TypeError("env is expected to be a dict, not a {}".format(type(env)))
 
-    def setMounts(self, mnt_list=[], global_write=False, append=False):
+    def setMounts(self, mnt_list=[], global_write=False, append=False, **kwargs):
         """Set mounts for the sandbox to use
 
         Args:
