@@ -29,4 +29,4 @@ from .element import Element
 
 # Frontend facing APIs
 from .context import Context
-from ._sandboxbwrap import _SandboxBwap
+from .sandbox import Sandbox
