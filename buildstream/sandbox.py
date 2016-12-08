@@ -18,7 +18,9 @@
 #  Authors:
 #        Andrew Leeming <andrew.leeming@codethink.co.uk>
 
-""" TODO about this class
+""" Sandbox abstraction layer. Allows interfacing of multiple sandbox
+backends without having to know implementation details. Currently supports
+chroot and bubblewrap
 """
 
 from enum import Enum
