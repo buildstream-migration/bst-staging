@@ -37,7 +37,6 @@ import py
 import pytest
 
 import subprocess
-import sys
 import tempfile
 
 
@@ -72,7 +71,6 @@ def session_tmpdir(request):
     request.addfinalizer(lambda: dir.remove(rec=1))
     # Any extra setup here
     return dir
-
 
 
 FILE_OR_DIRECTORY_EXISTS_TEST_PROGRAM = """

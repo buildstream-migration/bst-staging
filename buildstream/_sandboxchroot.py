@@ -31,7 +31,6 @@ that the sandbox contains a shell and we do some hack like running
 '''
 
 
-import sys
 import contextlib
 import multiprocessing
 import os
@@ -59,7 +58,6 @@ class _SandboxChroot:
         self.env = {}
         self._mounts = []
 
-
     def setCwd(self, cwd):
         """Set the CWD for the sandbox
 
@@ -69,7 +67,6 @@ class _SandboxChroot:
 
         # TODO check valid path of `cwd`
         self.cwd = cwd
-
 
     def setEnv(self, env):
         """Sets the env variables for the sandbox
@@ -85,7 +82,6 @@ class _SandboxChroot:
             self.env = env
         else:
             raise TypeError("env is expected to be a dict, not a {}".format(type(env)))
-
 
     def setMounts(self, mnt_list=[], append=False, **kwargs):
         """Set mounts for the sandbox to use
@@ -163,7 +159,6 @@ class _SandboxChroot:
             warnings.warn("%s failed: %s" % (
                 argv, err.decode('utf-8')))
 
-
     @contextlib.contextmanager
     def mount_all(self, mount_info_list):
         mounted = []
@@ -188,7 +183,7 @@ class _SandboxChroot:
                 self.unmount(mountpoint)
 
     def validate_extra_mounts(self, extra_mounts):
-        '''Validate and fill in default values for 'extra_mounts' setting.'''
+        """Validate and fill in default values for 'extra_mounts' setting."""
         if extra_mounts is None:
             return []
 
@@ -259,7 +254,7 @@ class _SandboxChroot:
 
 
 def _run_command(argv, stdout, stderr, cwd=None, env=None):
-    '''Wrapper around subprocess.Popen() with common settings.
+    """Wrapper around subprocess.Popen() with common settings.
 
     This function blocks until the subprocess has terminated.
 
@@ -270,7 +265,7 @@ def _run_command(argv, stdout, stderr, cwd=None, env=None):
     If stdout was not equal to subprocess.PIPE, stdout will be None. Same for
     stderr.
 
-    '''
+    """
     if stdout is None or stderr is None:
         dev_null = open(os.devnull, 'w')
         stdout = stdout or dev_null

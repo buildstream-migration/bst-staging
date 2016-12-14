@@ -5,7 +5,7 @@ from programs import (
     file_is_writable_test_program, file_or_directory_exists_test_program,
     session_tmpdir)
 
-from buildstream._sandboxbwrap import *
+from buildstream._sandboxbwrap import _SandboxBwap, STDOUT
 
 DATA_DIR = os.path.join(
     os.path.dirname(os.path.realpath(__file__)),
@@ -37,6 +37,7 @@ def test_output():
     assert exit == 11
     assert out.decode('unicode-escape') == ''
     assert err.decode('unicode-escape') == 'xyzzy\n'
+
 
 @pytest.mark.tmpdir(os.path.join(DATA_DIR, 'output_redirection'))
 def test_output_redirection(tmpdir):

@@ -27,6 +27,8 @@ import os
 import sys
 import subprocess
 import shutil
+import re
+import tempfile
 
 from .exceptions import ProgramNotFound
 
@@ -193,7 +195,7 @@ class _SandboxBwap():
             - writable : (optional) Boolean value to make mount writable instead of read-only
         """
 
-        mounts=[]
+        mounts = []
         # Process mounts one by one
         for mnt in mnt_list:
             host_dir = mnt.get('src', None)
@@ -213,7 +215,7 @@ class _SandboxBwap():
             self._mounts = mounts
 
     def setNetworkEnable(self, isEnabled=True):
-        self.network_enable=isEnabled
+        self.network_enable = isEnabled
 
     def _getBinary(self):
         """Get the absolute path of a program"""
@@ -249,7 +251,7 @@ class _SandboxBwap():
         for mnt in self._mounts:
             # (host_dir, target_dir, mnt_type, writable)
             target_dir = mnt[1]
-            stripped=os.path.abspath(target_dir).lstrip('/')
+            stripped = os.path.abspath(target_dir).lstrip('/')
             path = os.path.join(self.fs_root, stripped)
 
             if not os.path.exists(path):
@@ -261,7 +263,7 @@ class _SandboxBwap():
         for mnt in self._mounts:
             src, dest, type, wr = mnt
 
-            ## Do special mounts first
+            # Do special mounts first
             if type == "proc":
                 mount_args.extend(['--proc', dest])
 
@@ -277,7 +279,7 @@ class _SandboxBwap():
             elif type == "host-dev":
                 mount_args.extend(['--dev', dest])
 
-            ## Normal bind mounts
+            # Normal bind mounts
             elif wr:
                 mount_args.extend(['--bind', src, dest])
 
@@ -355,3 +357,50 @@ class _SandboxBwap():
                 dev_null.close()
 
         return process.returncode, out, err
+
+    @staticmethod
+    def _getHostLibsForBin(binPath):
+        process = subprocess.Popen(['ldd', binPath], stdout=subprocess.PIPE)
+        output, error = process.communicate()
+
+        outlines = output.split(b'\n')
+
+        libs = []
+        for l in outlines:
+            m = re.search(b'(\S+)(\s=>\s(\S+)?)?\s\((\S+)\)', l)
+            if m:
+                g = m.groups()
+                # ld-linux doesn't seem to follow the same convention
+                if "ld-linux" in str(g[0]):
+                    libs.append(g[0])
+                # Points to abs path of lib
+                elif g[2] is not None:
+                    libs.append(g[2])
+
+        return libs
+
+    def _minimalLibClone(self, proglist):
+        pass
+
+    def _makeLibCopy(self, binPath, cpdir):
+        libs = self.__class__.getHostLibsForBin(binPath)
+
+        # Make root directory
+        os.makedirs(cpdir, exist_ok=True)
+
+        for libpath in libs:
+            os.makedirs(os.path.dirname(libpath), exist_ok=True)
+            shutil.copy(libpath, os.path.join(cpdir, os.path.dirname(libpath)[1:]))
+
+    def _minimalDev(self, devlist):
+        """Creates a minimal dev directory ready for mounting
+
+        A tmp directory is created and populated with symlinks to device nodes
+        that are required for the sandbox. These are later dev-mounted
+        """
+        dev = tempfile.mkdtemp("minidev")
+
+        for d in devlist:
+            os.symlink(d, dev)
+
+        return {'src': dev, 'dest': '/dev', 'type': 'dev'}

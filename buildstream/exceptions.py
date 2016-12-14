@@ -111,4 +111,3 @@ class ProgramNotFound(Exception):
     bubblewrap is installed for it to work.
     """
     pass
-
