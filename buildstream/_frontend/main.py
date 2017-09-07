@@ -869,6 +869,7 @@ class App():
     # Render the status area, conditional on some internal state
     #
     def maybe_render_status(self):
+        return
 
         # If we're suspended or terminating, then dont render the status area
         if self.status and self.scheduler and \
