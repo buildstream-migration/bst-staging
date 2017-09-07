@@ -23,7 +23,7 @@
 from collections import deque
 
 # Local imports
-from .job import Job
+from .job import DebuggableJob
 
 
 # Indicates the kind of activity
@@ -177,7 +177,7 @@ class Queue():
                 self.skipped_elements.append(element)
                 continue
 
-            job = Job(scheduler, element, self.action_name)
+            job = DebuggableJob(scheduler, element, self.action_name)
             scheduler.job_starting(job)
 
             job.spawn(self.process, self.job_done, self.max_retries)

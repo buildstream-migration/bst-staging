@@ -139,6 +139,7 @@ class TimeCode(Widget):
 class TypeName(Widget):
 
     action_colors = {
+        MessageType.LOG: "cyan",
         MessageType.DEBUG: "cyan",
         MessageType.STATUS: "cyan",
         MessageType.INFO: "magenta",

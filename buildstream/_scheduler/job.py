@@ -36,6 +36,153 @@ from ..plugin import _plugin_lookup
 from .. import _yaml, _signals, utils
 
 
+class DebuggableJob():
+
+    def __init__(self, scheduler, element, action_name):
+
+        self.scheduler = scheduler            # The scheduler
+        self.action_name = action_name        # The action name for the Queue
+        self.action = None                    # The action callable function
+        self.complete = None                  # The complete callable function
+        self.element = element                # The element we're processing
+        self.listening = False                # Whether the parent is currently listening
+        self.suspended = False                # Whether this job is currently suspended
+        self.result = None                    # Return value of child action in the parent
+
+        self.tries = 0
+
+    # spawn()
+    #
+    # Args:
+    #    action (callable): The action function
+    #    complete (callable): The function to call when complete
+    #    max_retries (int): The maximum number of retries
+    #
+    def spawn(self, action, complete, max_retries=0):
+        self.action = action
+        self.complete = complete
+
+        self.tries += 1
+        self.max_retries = max_retries
+
+        self.scheduler.loop.call_soon(self.child_action)
+
+    # shutdown()
+    #
+    # Should be called after the job completes
+    #
+    def shutdown(self):
+        pass
+
+    # terminate()
+    #
+    # Forcefully terminates an ongoing job.
+    #
+    def terminate(self):
+        raise NotImplementedError()
+
+    # terminate_wait()
+    #
+    # Wait for terminated jobs to complete
+    #
+    # Args:
+    #    timeout (float): Seconds to wait
+    #
+    # Returns:
+    #    (bool): True if the process terminated cleanly, otherwise False
+    def terminate_wait(self, timeout):
+        raise NotImplementedError()
+
+    # kill()
+    #
+    # Forcefully kill the process, and any children it might have.
+    #
+    def kill(self):
+        raise NotImplementedError()
+
+    # suspend()
+    #
+    # Suspend this job.
+    #
+    def suspend(self):
+        pass
+
+    # resume()
+    #
+    # Resume this suspended job.
+    #
+    def resume(self, silent=False):
+        pass
+
+    #######################################################
+    #                  Child Process                      #
+    #######################################################
+    def child_action(self):
+
+        element = self.element
+        action_name = self.action_name
+
+        starttime = datetime.datetime.now()
+
+        # Time, log and and run the action function
+        #
+        with element._logging_enabled(action_name) as filename:
+
+            self.message(
+                element, MessageType.START, self.action_name, logfile=filename)
+
+            # Print the element's environment at the beginning of any element's log file.
+            #
+            # This should probably be omitted for non-build tasks but it's harmless here
+            elt_env = _yaml.node_sanitize(element._Element__environment)
+            env_dump = yaml.round_trip_dump(elt_env, default_flow_style=False, allow_unicode=True)
+            self.message(element, MessageType.LOG,
+                         "Build environment for element {}".format(element.name),
+                         detail=env_dump, logfile=filename)
+
+            try:
+                result = self.action(element)
+                assert self.result is None
+                self.result = result
+
+            except _BstError as e:
+                elapsed = datetime.datetime.now() - starttime
+
+                self.message(element, MessageType.FAIL, self.action_name,
+                                elapsed=elapsed, detail=str(e),
+                                logfile=filename, sandbox=e.sandbox)
+
+                self.complete(self, 1, self.element)
+
+            except Exception as e:
+                # If an unhandled (not normalized to _BstError) occurs, that's
+                # a bug, send the traceback and formatted exception back to the
+                # frontend and print it to the log file.
+                #
+                elapsed = datetime.datetime.now() - starttime
+                detail = "An unhandled exception occured:\n\n{}".format(traceback.format_exc())
+                self.message(element, MessageType.BUG, self.action_name,
+                             elapsed=elapsed, detail=detail,
+                             logfile=filename)
+                self.complete(self, 1, self.element)
+
+            elapsed = datetime.datetime.now() - starttime
+            self.message(element, MessageType.SUCCESS, self.action_name, elapsed=elapsed,
+                         logfile=filename)
+
+        self.complete(self, 0, self.element)
+
+    # This can be used equally in the parent and child processes
+    def message(self, plugin, message_type, message, **kwargs):
+        args = dict(kwargs)
+        args['scheduler'] = True
+        self.scheduler.context._message(
+            Message(plugin._get_unique_id(),
+                    message_type,
+                    message,
+                    **args))
+
+
 # Used to distinguish between status messages and return values
 class Envelope():
     def __init__(self, message_type, message):
