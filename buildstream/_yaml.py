@@ -53,7 +53,8 @@ class Provenance():
 
     # Convert a Provenance to a string for error reporting
     def __str__(self):
-        return "%s [line %d column %d]" % (self.filename, self.line, self.col)
+        return "{} [line {} column {}]".format(
+            self.filename, self.line, self.col)
 
     # Abstract method
     def clone(self):
