@@ -11,12 +11,36 @@ import time
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        '--samples',
+        type=int,
+        default=3,
+        help='How many times to repeat each measurement')
     args = parser.parse_args()
 
-    benchmark()
+    run_benchmark(benchmark_python, args.samples)
+    run_benchmark(benchmark_help, args.samples)
+    # run_benchmark(benchmark_files, args.samples)
 
 
-def benchmark():
+def run_benchmark(benchmark_fn, num_samples):
+    timer = Timer()
+    for i in range(num_samples):
+        benchmark_fn(timer)
+    print(timer.elapsed / num_samples)
+
+
+def benchmark_python(timer):
+    with timer.context():
+        run('python3', '-c', 'print("hello")')
+
+
+def benchmark_help(timer):
+    with timer.context():
+        run('bst', '--help')
+
+
+def benchmark_files(timer):
     timer = Timer()
 
     for i in range(3):
@@ -88,13 +112,17 @@ class FileImportFixture():
         write_file(path, contents)
 
     def bst(self, *args):
-        return subprocess.run(
-            ('bst',) + args,
-            cwd=self.working_directory,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-            universal_newlines=True)
+        return run('bst', *args, working_dir=working_directory)
+
+
+def run(command, *args, working_dir=None):
+    return subprocess.run(
+        (command,) + args,
+        cwd=working_dir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+        universal_newlines=True)
 
 
 def write_file(path, contents):
