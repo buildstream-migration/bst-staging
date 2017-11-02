@@ -17,34 +17,37 @@ import uuid
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        '--samples',
-        type=int,
-        default=3,
-        help='How many times to repeat each measurement')
-    parser.add_argument(
-        '--erase-buildstream-cache',
-        action='store_true')
+    # parser.add_argument(
+    #     '--samples',
+    #     type=int,
+    #     default=3,
+    #     help='How many times to repeat each measurement')
+    # parser.add_argument(
+    #     '--erase-buildstream-cache',
+    #     action='store_true')
     args = parser.parse_args()
 
-    run_benchmark(args, benchmark_python)
-    run_benchmark(args, benchmark_python_import_buildstream)
-    run_benchmark(args, benchmark_help)
+    # Compare start-up times of Python and BuildStream
+    run_benchmark(100, benchmark_python)
+    run_benchmark(10, benchmark_python_import_buildstream)
+    run_benchmark(10, benchmark_help)
 
     thousands = range(1, 10 * 1000, 1000)
 
+    # Compare operations involving many files, use writing random files as a
+    # reference for comparison.
     run_benchmark_series(
-        args,
+        10,
         benchmark_write_files,
-        thousands)
+        series=thousands)
     run_benchmark_series(
-        args,
+        1,
         benchmark_import_files_tar,
-        thousands)
+        series=thousands)
     run_benchmark_series(
-        args,
+        1,
         benchmark_import_local_files,
-        thousands)
+        series=thousands)
 
 
 def benchmark_python(timer):
@@ -64,22 +67,8 @@ def benchmark_help(timer):
 
 def benchmark_write_files(timer, num_files):
     with make_bst_project() as p:
-        with timer.context('write files'):
+        with timer.context():
             write_random_files(p.working_dir, 'files', num_files)
-
-
-def benchmark_import_local_files(timer, num_files):
-    with make_bst_project() as p:
-        write_random_files(p.working_dir, 'files', num_files)
-        p.write_file('import.bst', make_local_import_text('files/'))
-        p.write_file('compose.bst', make_single_compose_text('import.bst'))
-
-        with timer.context('show compose element'):
-            p.bst('show', 'compose.bst')
-        with timer.context('build import element'):
-            p.bst('build', 'import.bst')
-        with timer.context('build compose element'):
-            p.bst('build', 'compose.bst')
 
 
 def benchmark_import_files_tar(timer, num_files):
@@ -104,13 +93,35 @@ def benchmark_import_files_tar(timer, num_files):
             p.bst('build', 'import.bst')
         with timer.context('build compose element'):
             p.bst('build', 'compose.bst')
+        with timer.context('build cached compose element'):
+            p.bst('build', 'compose.bst')
+        with timer.context('checkout compose element'):
+            p.bst('checkout', 'compose.bst', 'files_checkout')
 
 
-def run_benchmark(args, benchmark_fn):
+def benchmark_import_local_files(timer, num_files):
+    with make_bst_project() as p:
+        write_random_files(p.working_dir, 'files', num_files)
+        p.write_file('import.bst', make_local_import_text('files/'))
+        p.write_file('compose.bst', make_single_compose_text('import.bst'))
+
+        with timer.context('show compose element'):
+            p.bst('show', 'compose.bst')
+        with timer.context('build import element'):
+            p.bst('build', 'import.bst')
+        with timer.context('build compose element'):
+            p.bst('build', 'compose.bst')
+        with timer.context('build cached compose element'):
+            p.bst('build', 'compose.bst')
+        with timer.context('checkout compose element'):
+            p.bst('checkout', 'compose.bst', 'files_checkout')
+
+
+def run_benchmark(samples, benchmark_fn):
     timer = Timer()
-    for i in range(args.samples):
-        if args.erase_buildstream_cache:
-            erase_buildstream_cache()
+    for i in range(samples):
+        # if args.erase_buildstream_cache:
+        #     erase_buildstream_cache()
         benchmark_fn(timer)
 
     for key in timer.ordered_names:
@@ -119,16 +130,17 @@ def run_benchmark(args, benchmark_fn):
             name += ': ' + key
         print(
             name,
-            '{:.2f}'.format(timer.elapsed[key] / args.samples),
+            '{:.2f}'.format(timer.elapsed[key] / samples),
             sep=',')
 
 
-def run_benchmark_series(args, benchmark_fn, series):
+def run_benchmark_series(samples, benchmark_fn, series):
     for item in series:
         timer = Timer()
-        for i in range(args.samples):
-            if args.erase_buildstream_cache:
-                erase_buildstream_cache()
+
+        for i in range(samples):
+            # if args.erase_buildstream_cache:
+            #     erase_buildstream_cache()
             benchmark_fn(timer, item)
 
         for key in timer.ordered_names:
@@ -138,7 +150,7 @@ def run_benchmark_series(args, benchmark_fn, series):
             print(
                 name,
                 item,
-                '{:.2f}'.format(timer.elapsed[key] / args.samples),
+                '{:.2f}'.format(timer.elapsed[key] / samples),
                 sep=',')
 
 
