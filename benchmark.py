@@ -27,16 +27,24 @@ def main():
         action='store_true')
     args = parser.parse_args()
 
-    # run_benchmark(args, benchmark_python)
-    # run_benchmark(args, benchmark_help)
-    # run_benchmark_series(
-    #     args,
-    #     benchmark_import_local_files,
-    #     (1, 5, 10, 20, 50, 100, 120, 150, 200))
+    run_benchmark(args, benchmark_python)
+    run_benchmark(args, benchmark_python_import_buildstream)
+    run_benchmark(args, benchmark_help)
+
+    thousands = range(1, 10 * 1000, 1000)
+
+    run_benchmark_series(
+        args,
+        benchmark_write_files,
+        thousands)
     run_benchmark_series(
         args,
         benchmark_import_files_tar,
-        range(1, 200 * 1000, 10 * 1000))
+        thousands)
+    run_benchmark_series(
+        args,
+        benchmark_import_local_files,
+        thousands)
 
 
 def benchmark_python(timer):
@@ -44,9 +52,20 @@ def benchmark_python(timer):
         run('python3', '-c', 'print("hello")')
 
 
+def benchmark_python_import_buildstream(timer):
+    with timer.context():
+        run('python3', '-c', 'import buildstream')
+
+
 def benchmark_help(timer):
     with timer.context():
         run('bst', '--help')
+
+
+def benchmark_write_files(timer, num_files):
+    with make_bst_project() as p:
+        with timer.context('write files'):
+            write_random_files(p.working_dir, 'files', num_files)
 
 
 def benchmark_import_local_files(timer, num_files):
@@ -71,7 +90,10 @@ def benchmark_import_files_tar(timer, num_files):
             os.path.join(p.working_dir, 'files/'))
         shutil.rmtree(os.path.join(p.working_dir, 'files/'))
 
-        p.write_file('import.bst', make_tar_import_text('files.tar.gz'))
+        tar_path = os.path.join(p.working_dir, 'files.tar.gz')
+        p.write_file(
+            'import.bst',
+            make_tar_import_text('file://' + tar_path))
         p.write_file('compose.bst', make_single_compose_text('import.bst'))
 
         with timer.context('track import element'):
