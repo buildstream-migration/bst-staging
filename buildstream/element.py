@@ -382,7 +382,7 @@ class Element(Plugin):
                 if path is None \
                 else os.path.join(basedir, path.lstrip(os.sep))
 
-            files = self.__compute_splits(include, exclude, orphans)
+            files = self.compute_splits(include, exclude, orphans)
             result = utils.link_files(artifact, stagedir, files=files)
 
         return result
@@ -1586,7 +1586,7 @@ class Element(Plugin):
             for domain, rules in self.node_items(splits)
         }
 
-    def __compute_splits(self, include=None, exclude=None, orphans=True):
+    def compute_splits(self, include=None, exclude=None, orphans=True):
         basedir = os.path.join(self.__artifacts.extract(self), 'files')
 
         # No splitting requested, just report complete artifact
