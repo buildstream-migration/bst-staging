@@ -118,9 +118,9 @@ def test_compose_integrate_replace_directory_with_symbolic_link(datafiles, cli):
     ])
     assert result.exit_code == 0
 
-    linkpath = os.path.join(checkout, 'sub', 'file-A-1')
+    linkpath = os.path.join(checkout, 'sub', 'subfile-A-1')
     assert os.path.exists(linkpath)
 
     realpath = os.path.realpath(linkpath)
-    expected_realpath = os.path.join(os.path.realpath(checkout), 'sub2', 'file-A-1')
+    expected_realpath = os.path.join(os.path.realpath(checkout), 'sub2', 'subfile-A-1')
     assert realpath == expected_realpath
