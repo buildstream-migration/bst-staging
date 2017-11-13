@@ -62,7 +62,7 @@ class Variables():
     #    LoadError, if the string contains unresolved variable references.
     #
     def subst(self, string):
-        substitute, unmatched = self.subst_internal(string, self.variables)
+        substitute, unmatched = self._subst_internal(string, self.variables)
         unmatched = list(set(unmatched))
         if unmatched:
             if len(unmatched) == 1:
@@ -78,7 +78,7 @@ class Variables():
 
         return substitute
 
-    def subst_internal(self, string, variables):
+    def _subst_internal(self, string, variables):
 
         def subst_callback(match):
             nonlocal variables
@@ -131,7 +131,7 @@ class Variables():
                 # Ensure stringness of the value before substitution
                 value = _yaml.node_get(variables, str, key)
 
-                resolved_var, item_unmatched = self.subst_internal(value, variables)
+                resolved_var, item_unmatched = self._subst_internal(value, variables)
                 resolved[key] = resolved_var
                 unmatched += item_unmatched
 
