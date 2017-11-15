@@ -101,9 +101,10 @@ class ComposeElement(Element):
         if require_split:
             with self.timed_activity("Computing split", silent_nested=True):
                 for dep in self.dependencies(Scope.BUILD):
-                    split.update(dep.compute_splits(self.include,
-                                                    self.exclude,
-                                                    self.include_orphans))
+                    files = dep.compute_manifest(self.include,
+                                                 self.exclude,
+                                                 self.include_orphans)
+                    split.update(files)
 
         # Make a snapshot of all the files.
         basedir = sandbox.get_directory()
