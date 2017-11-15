@@ -188,6 +188,8 @@ class Pipeline():
                     continue
 
                 self.project._set_workspace_path(element, source, workspace)
+                build_count = project._get_sandboxed_build_count(element.name)
+                self.project._set_sandboxed_build_count(element.name, build_count)
 
     def initialize_remote_caches(self, artifact_cache_specs):
         def remote_failed(url, error):
@@ -622,6 +624,7 @@ class Pipeline():
                 source._init_workspace(directory)
 
         self.project._set_workspace_path(target, source_index, workdir)
+        self.project._set_sandboxed_build_count(target.name, 0)
 
         with target.timed_activity("Saving workspace configuration"):
             self.project._save_workspace_config()

@@ -331,6 +331,49 @@ class Project():
         self._workspaces['build-elements'][element.name]['sources'][index] = {'path': path}
         element._set_source_workspace(index, path)
 
+    # _get_sandboxed_build_count()
+    #
+    # Get the count of builds done in the same sandbox for given element.
+    #
+    # Args:
+    #    element (str) - The element name
+    #
+    # Returns:
+    #    (int): the count of sandboxed builds
+    #
+    def _get_sandboxed_build_count(self, element):
+        try:
+            return self._workspaces['build-elements'][element]['sandboxed-build-count']
+        except KeyError:
+            return 0
+
+    # _set_sandboxed_build_count()
+    #
+    # Set the count of builds done in the same sandbox for given element.
+    #
+    # Args:
+    #    element (str) - The element name
+    #    value (int): the count of sandboxed builds
+    #
+    def _set_sandboxed_build_count(self, element, value):
+        if element not in self._workspaces['build-elements']:
+            return
+
+        self._workspaces['build-elements'][element]['sandboxed-build-count'] = value
+
+    # _increment_sandboxed_build_count()
+    #
+    # Increment the count of sandboxed builds for given element by 1.
+    #
+    # Args:
+    #    element (str) - The element name
+    #
+    def _increment_sandboxed_build_count(self, element):
+        if element not in self._workspaces['build-elements']:
+            return
+
+        self._workspaces['build-elements'][element]['sandboxed-build-count'] += 1
+
     # _delete_workspace()
     #
     # Remove the workspace from the workspace element. Note that this
@@ -347,6 +390,9 @@ class Project():
         # Contains a provenance object
         if len(self._workspaces['build-elements'][element]['sources']) == 1:
             del self._workspaces['build-elements'][element]['sources']
+            del self._workspaces['build-elements'][element]['sandboxed-build-count']
+        else:
+            self._set_sandboxed_build_count(element, 0)
 
         # Contains a provenance object
         if len(self._workspaces['build-elements'][element]) == 1:

@@ -196,6 +196,9 @@ class BuildElement(Element):
             if not commands:
                 continue
 
+            if command_name == 'configure-commands' and self.get_sandboxed_build_count() > 0:
+                continue
+
             with self.timed_activity("Running {}".format(command_name)):
                 for cmd in commands:
                     self.status("Running {}".format(command_name), detail=cmd)

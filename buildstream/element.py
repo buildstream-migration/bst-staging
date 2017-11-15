@@ -591,6 +591,15 @@ class Element(Plugin):
 
         return None
 
+    def get_sandboxed_build_count(self):
+        """Get the count of workspaced builds for this element.
+
+        Returns:
+           (int): The count of builds done in the same sandbox.
+        """
+        project = self._get_project()
+        return project._get_sandboxed_build_count(self.name)
+
     #############################################################
     #                  Abstract Element Methods                 #
     #############################################################
@@ -1444,6 +1453,16 @@ class Element(Plugin):
             self.__cached = self.__strong_cached
         if self._get_strict() and not self.__remotely_cached:
             self.__remotely_cached = self.__remotely_strong_cached
+
+    # _increment_sandboxed_build_count()
+    #
+    # Increment the count of builds done in the same sandbox for this
+    # element.
+    #
+    def _increment_sandboxed_build_count(self):
+        project = self._get_project()
+        project._increment_sandboxed_build_count(self.name)
+        project._save_workspace_config()
 
     #############################################################
     #                   Private Local Methods                   #
