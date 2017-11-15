@@ -239,10 +239,10 @@ class Project():
     #    A tuple in the following format: (element, source, path).
     def _list_workspaces(self):
         for element, _ in _yaml.node_items(self._workspaces):
-            for source, _ in _yaml.node_items(self._workspaces[element]):
-                yield (element, int(source), self._workspaces[element][source])
+            for source, _ in _yaml.node_items(self._workspaces[element]['sources']):
+                yield (element, int(source), self._workspaces[element]['sources'][source])
 
-    # _get_workspace()
+    # _get_workspace_path()
     #
     # Get the path of the workspace source associated with the given
     # element's source at the given index
@@ -255,13 +255,13 @@ class Project():
     #    None if no workspace is open, the path to the workspace
     #    otherwise
     #
-    def _get_workspace(self, element, index):
+    def _get_workspace_path(self, element, index):
         try:
-            return self._workspaces[element][index]
+            return self._workspaces[element]['sources'][index]
         except KeyError:
             return None
 
-    # _set_workspace()
+    # _set_workspace_path()
     #
     # Set the path of the workspace associated with the given
     # element's source at the given index
@@ -271,12 +271,57 @@ class Project():
     #    index (int) - The source index
     #    path (str) - The path to set the workspace to
     #
-    def _set_workspace(self, element, index, path):
+    def _set_workspace_path(self, element, index, path):
         if element.name not in self._workspaces:
             self._workspaces[element.name] = {}
+        if 'sources' not in self._workspaces[element.name]:
+            self._workspaces[element.name]['sources'] = {}
 
-        self._workspaces[element.name][index] = path
+        self._workspaces[element.name]['sources'][index] = path
         element._set_source_workspace(index, path)
+
+    # _get_sandboxed_build_count()
+    #
+    # Get the count of builds done in the same sandbox for given element.
+    #
+    # Args:
+    #    element (str) - The element name
+    #
+    # Returns:
+    #    (int): the count of sandboxed builds
+    #
+    def _get_sandboxed_build_count(self, element):
+        try:
+            return self._workspaces[element]['sandboxed-build-count']
+        except KeyError:
+            return 0
+
+    # _set_sandboxed_build_count()
+    #
+    # Set the count of builds done in the same sandbox for given element.
+    #
+    # Args:
+    #    element (str) - The element name
+    #    value (int): the count of sandboxed builds
+    #
+    def _set_sandboxed_build_count(self, element, value):
+        if element not in self._workspaces:
+            return
+
+        self._workspaces[element]['sandboxed-build-count'] = value
+
+    # _increment_sandboxed_build_count()
+    #
+    # Increment the count of sandboxed builds for given element by 1.
+    #
+    # Args:
+    #    element (str) - The element name
+    #
+    def _increment_sandboxed_build_count(self, element):
+        if element not in self._workspaces:
+            return
+
+        self._workspaces[element]['sandboxed-build-count'] += 1
 
     # _delete_workspace()
     #
@@ -289,7 +334,14 @@ class Project():
     #    index (int) - The source index
     #
     def _delete_workspace(self, element, index):
-        del self._workspaces[element][index]
+        del self._workspaces[element]['sources'][index]
+
+        # Contains a provenance object
+        if len(self._workspaces[element]['sources']) == 1:
+            del self._workspaces[element]['sources']
+            del self._workspaces[element]['sandboxed-build-count']
+        else:
+            self._set_sandboxed_build_count(element, 0)
 
         # Contains a provenance object
         if len(self._workspaces[element]) == 1:
@@ -325,7 +377,7 @@ class Project():
     #
     # Dump the current workspace element to the project configuration
     # file. This makes any changes performed with _delete_workspace or
-    # _set_workspace permanent
+    # _set_workspace_path permanent
     #
     def _save_workspace_config(self):
         _yaml.dump(_yaml.node_sanitize(self._workspaces),

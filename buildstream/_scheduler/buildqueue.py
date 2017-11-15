@@ -45,4 +45,8 @@ class BuildQueue(Queue):
         if returncode == 0:
             element._cached(recalculate=True)
 
+            # Increment build count, if workspaced
+            if element._workspaced():
+                element._increment_sandboxed_build_count()
+
         return True
