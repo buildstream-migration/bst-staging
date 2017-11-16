@@ -93,6 +93,8 @@ def benchmark_write_files(timer, num_files):
 
 def benchmark_import_files_tar(timer, num_files):
     with make_bst_project() as p:
+        p.set_timer(timer)
+
         write_random_files(p.working_dir, 'files', num_files)
         tar_gz_directory(
             os.path.join(p.working_dir, 'files.tar.gz'),
@@ -105,36 +107,27 @@ def benchmark_import_files_tar(timer, num_files):
             make_tar_import_text('file://' + tar_path))
         p.write_file('compose.bst', make_single_compose_text('import.bst'))
 
-        with timer.context('track import element'):
-            p.bst('track', 'import.bst')
-        with timer.context('show compose element'):
-            p.bst('show', 'compose.bst')
-        with timer.context('build import element'):
-            p.bst('build', 'import.bst')
-        with timer.context('build compose element'):
-            p.bst('build', 'compose.bst')
-        with timer.context('build cached compose element'):
-            p.bst('build', 'compose.bst')
-        with timer.context('checkout compose element'):
-            p.bst('checkout', 'compose.bst', 'files_checkout')
+        p.timed_bst('track', 'import.bst')
+        p.timed_bst('show', 'compose.bst')
+        p.timed_bst('build', 'import.bst')
+        p.timed_bst('build', 'compose.bst')
+        p.timed_bst('build', 'compose.bst', note='cached')
+        p.timed_bst('checkout', 'compose.bst', 'files_checkout')
 
 
 def benchmark_import_local_files(timer, num_files):
     with make_bst_project() as p:
+        p.set_timer(timer)
+
         write_random_files(p.working_dir, 'files', num_files)
         p.write_file('import.bst', make_local_import_text('files/'))
         p.write_file('compose.bst', make_single_compose_text('import.bst'))
 
-        with timer.context('show compose element'):
-            p.bst('show', 'compose.bst')
-        with timer.context('build import element'):
-            p.bst('build', 'import.bst')
-        with timer.context('build compose element'):
-            p.bst('build', 'compose.bst')
-        with timer.context('build cached compose element'):
-            p.bst('build', 'compose.bst')
-        with timer.context('checkout compose element'):
-            p.bst('checkout', 'compose.bst', 'files_checkout')
+        p.timed_bst('show', 'compose.bst')
+        p.timed_bst('build', 'import.bst')
+        p.timed_bst('build', 'compose.bst')
+        p.timed_bst('build', 'compose.bst', note='cached')
+        p.timed_bst('checkout', 'compose.bst', 'files_checkout')
 
 
 def run_benchmark(samples, benchmark_fn):
@@ -227,6 +220,7 @@ class BstProject():
     def __init__(self, working_dir):
         self.working_dir = working_dir
         self.write_file('project.conf', 'name: ' + random_name())
+        self.timer = None
 
     def write_file(self, relative_path, contents):
         path = os.path.join(self.working_dir, relative_path)
@@ -235,6 +229,23 @@ class BstProject():
     def bst(self, *args):
         return run('bst', *args, working_dir=self.working_dir)
 
+    def set_timer(self, timer):
+        self.timer = timer
+
+    def timed_bst(self, *args, note=None, custom_timer=None):
+
+        timer = custom_timer
+        if timer is None:
+            timer = self.timer
+        if timer is None:
+            raise Exception('Must supply a timer, or use set_timer()')
+
+        context_name = ' '.join(args)
+        if note is not None:
+            context_name = '{} ({})'.format(context_name, note)
+
+        with timer.context(context_name):
+            return run('bst', *args, working_dir=self.working_dir)
 
 def random_name():
     return uuid.uuid4().hex
