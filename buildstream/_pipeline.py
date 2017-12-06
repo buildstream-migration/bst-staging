@@ -187,7 +187,7 @@ class Pipeline():
                     self.unused_workspaces.append((element_name, source, workspace))
                     continue
 
-                self.project._set_workspace(element, source, workspace)
+                self.project._set_workspace_path(element, source, workspace)
 
     def initialize_remote_caches(self, artifact_cache_specs):
         def remote_failed(url, error):
@@ -576,7 +576,7 @@ class Pipeline():
             raise PipelineError("Checkout directory is not empty: {}".format(directory))
 
         # Check for workspace config
-        if self.project._get_workspace(target.name, source_index):
+        if self.project._get_workspace_path(target.name, source_index):
             raise PipelineError("Workspace '{}' is already defined."
                                 .format(target.name + " - " + str(source_index)))
 
@@ -621,7 +621,7 @@ class Pipeline():
                                         "source.")
                 source._init_workspace(directory)
 
-        self.project._set_workspace(target, source_index, workdir)
+        self.project._set_workspace_path(target, source_index, workdir)
 
         with target.timed_activity("Saving workspace configuration"):
             self.project._save_workspace_config()
@@ -641,7 +641,7 @@ class Pipeline():
 
         # Remove workspace directory if prompted
         if remove_dir:
-            path = self.project._get_workspace(target.name, source_index)
+            path = self.project._get_workspace_path(target.name, source_index)
             if path is not None:
                 with target.timed_activity("Removing workspace directory {}"
                                            .format(path)):
@@ -681,7 +681,7 @@ class Pipeline():
         # When working on workspaces we only have one target
         target = self.targets[0]
         source_index = self.validate_workspace_index(source_index)
-        workspace_dir = self.project._get_workspace(target.name, source_index)
+        workspace_dir = self.project._get_workspace_path(target.name, source_index)
 
         if workspace_dir is None:
             raise PipelineError("Workspace '{}' is currently not defined"

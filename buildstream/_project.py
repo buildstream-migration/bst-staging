@@ -289,11 +289,11 @@ class Project():
     # Yields:
     #    A tuple in the following format: (element, source, path).
     def _list_workspaces(self):
-        for element, _ in _yaml.node_items(self._workspaces):
-            for source, _ in _yaml.node_items(self._workspaces[element]):
-                yield (element, int(source), self._workspaces[element][source])
+        for element, _ in _yaml.node_items(self._workspaces['build-elements']):
+            for source, _ in _yaml.node_items(self._workspaces['build-elements'][element]['sources']):
+                yield (element, int(source), self._workspaces['build-elements'][element]['sources'][source]['path'])
 
-    # _get_workspace()
+    # _get_workspace_path()
     #
     # Get the path of the workspace source associated with the given
     # element's source at the given index
@@ -306,13 +306,13 @@ class Project():
     #    None if no workspace is open, the path to the workspace
     #    otherwise
     #
-    def _get_workspace(self, element, index):
+    def _get_workspace_path(self, element, index):
         try:
-            return self._workspaces[element][index]
+            return self._workspaces['build-elements'][element]['sources'][index]['path']
         except KeyError:
             return None
 
-    # _set_workspace()
+    # _set_workspace_path()
     #
     # Set the path of the workspace associated with the given
     # element's source at the given index
@@ -322,11 +322,13 @@ class Project():
     #    index (int) - The source index
     #    path (str) - The path to set the workspace to
     #
-    def _set_workspace(self, element, index, path):
-        if element.name not in self._workspaces:
-            self._workspaces[element.name] = {}
+    def _set_workspace_path(self, element, index, path):
+        if element.name not in self._workspaces['build-elements']:
+            self._workspaces['build-elements'][element.name] = {}
+        if 'sources' not in self._workspaces['build-elements'][element.name]:
+            self._workspaces['build-elements'][element.name]['sources'] = {}
 
-        self._workspaces[element.name][index] = path
+        self._workspaces['build-elements'][element.name]['sources'][index] = {'path': path}
         element._set_source_workspace(index, path)
 
     # _delete_workspace()
@@ -340,11 +342,15 @@ class Project():
     #    index (int) - The source index
     #
     def _delete_workspace(self, element, index):
-        del self._workspaces[element][index]
+        del self._workspaces['build-elements'][element]['sources'][index]
 
         # Contains a provenance object
-        if len(self._workspaces[element]) == 1:
-            del self._workspaces[element]
+        if len(self._workspaces['build-elements'][element]['sources']) == 1:
+            del self._workspaces['build-elements'][element]['sources']
+
+        # Contains a provenance object
+        if len(self._workspaces['build-elements'][element]) == 1:
+            del self._workspaces['build-elements'][element]
 
     # _load_workspace_config()
     #
@@ -356,9 +362,25 @@ class Project():
     #    A node containing a dict that assigns projects to their
     #    workspaces. For example:
     #
+    #      --- OLD FORMAT ---:
     #        amhello.bst: {
     #            0: /home/me/automake,
     #            1: /home/me/amhello
+    #        }
+    #
+    #      --- NEW FORMAT ---:
+    #        version: 1,
+    #        build-elements: {
+    #            alpha.bst: {
+    #                sources: {
+    #                    0: {
+    #                        path: /workspaces/bravo
+    #                    }
+    #                    1: {
+    #                        path: /workspaces/charlie
+    #                    }
+    #                }
+    #            }
     #        }
     #
     def _load_workspace_config(self):
@@ -370,13 +392,40 @@ class Project():
             raise LoadError(LoadErrorReason.MISSING_FILE,
                             "Could not load workspace config: {}".format(e)) from e
 
-        return _yaml.load(workspace_file)
+        config = _yaml.load(workspace_file)
+        version = config.get('version')
+
+        if not version:
+            # Need to change the format to be the newer form
+            return {
+                "version": 1,
+                "build-elements": {
+                    element: {
+                        "sources": {
+                            index: {
+                                "path": path
+                            }
+                            for (index, path)
+                            in _yaml.node_items(indexed_source)
+                        }
+                    }
+                    for (element, indexed_source)
+                    in _yaml.node_items(config)
+                }
+            }
+        elif version == 1:
+            # Can just use this as-is
+            return config
+        else:
+            # We do not understand this
+            raise LoadError(LoadErrorReason.INVALID_DATA,
+                            'Unable to parse version "{}" of workspace config'.format(version))
 
     # _save_workspace_config()
     #
     # Dump the current workspace element to the project configuration
     # file. This makes any changes performed with _delete_workspace or
-    # _set_workspace permanent
+    # _set_workspace_path permanent
     #
     def _save_workspace_config(self):
         _yaml.dump(_yaml.node_sanitize(self._workspaces),
