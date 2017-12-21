@@ -492,20 +492,16 @@ def _copy_directories(srcdir, destdir, target):
                                 'directory expected: {}'.format(old_dir))
 
 
-def _ensure_real_directory(root, destpath):
-    # The realpath in the sandbox may refer to a file outside of the
-    # sandbox when any of the direcory branches are a symlink to an
-    # absolute path.
+def _ensure_real_directory(destpath):
+    # We assume here that the artifacts we have staged only contain symlinks
+    # with relative paths. If 'destpath' has a symlink in its path that points
+    # /bin for example then 'realpath' would end up pointing somewhere inside
+    # /bin which would cause us to try and write stuff over host OS filesystem.
     #
-    # This should not happen as we rely on relative_symlink_target() below
-    # when staging the actual symlinks which may lead up to this path.
-    #
+    # There is too much of a performance cost incurred if we check each symlink
+    # here after resolving it, but integration-tests/symlinks-test should catch
+    # any regressions on that front.
     realpath = os.path.realpath(destpath)
-    if not realpath.startswith(os.path.realpath(root)):
-        raise UtilError('Destination path resolves to a path outside ' +
-                        'of the staging area\n\n' +
-                        '  Destination path: {}\n'.format(destpath) +
-                        '  Real path: {}'.format(realpath))
 
     # Ensure the real destination path exists before trying to get the mode
     # of the real destination path.
@@ -568,7 +564,7 @@ def _process_list(srcdir, destdir, filelist, actionfunc, result, ignore_missing=
         # Ensure that broken symlinks to directories have their targets
         # created before attempting to stage files across broken
         # symlink boundaries
-        _ensure_real_directory(destdir, os.path.dirname(destpath))
+        _ensure_real_directory(os.path.dirname(destpath))
 
         try:
             file_stat = os.lstat(srcpath)
@@ -584,7 +580,7 @@ def _process_list(srcdir, destdir, filelist, actionfunc, result, ignore_missing=
         if stat.S_ISDIR(mode):
             # Ensure directory exists in destination
             if not os.path.exists(destpath):
-                _ensure_real_directory(destdir, destpath)
+                _ensure_real_directory(destpath)
 
             dest_stat = os.lstat(os.path.realpath(destpath))
             if not stat.S_ISDIR(dest_stat.st_mode):
