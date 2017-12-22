@@ -572,15 +572,23 @@ def _process_list(srcdir, destdir, filelist, actionfunc, result, ignore_missing=
         # The destination directory may not have been created separately
         permissions.extend(_copy_directories(srcdir, destdir, path))
 
-        # Ensure that broken symlinks to directories have their targets
-        # created before attempting to stage files across broken
-        # symlink boundaries
-        _ensure_real_directory(os.path.dirname(destpath))
-
         if stat.S_ISDIR(mode):
-            # Ensure directory exists in destination
-            if not os.path.exists(destpath):
-                _ensure_real_directory(destpath)
+            # Ensure directory exists in destination. Since we process the
+            # filelist in directory-first order, we only need to do this when
+            # we encounter a directory.
+            #
+            # Any symlinks /within/ 'destpath' will be resolved. This is an
+            # unusual situation: bear in mind the filelist could be a combined
+            # list of the contents of multiple artifacts, and also consider that
+            # two artifacts could stage something in the same place. If one
+            # puts a symlink at /bin and the other puts a directory at /bin,
+            # the symlink could come first and the directory will not overwrite
+            # it, so we may have pathnames from the second artifact such as
+            # /bin/sh which end up having a symlink as part of their path. The
+            # symlink in the path will be resolved when we try and actually
+            # create the file, and we need to make sure that its target exists
+            # first.
+            _ensure_real_directory(destpath)
 
             dest_stat = os.lstat(os.path.realpath(destpath))
             if not stat.S_ISDIR(dest_stat.st_mode):
