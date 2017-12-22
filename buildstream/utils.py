@@ -550,6 +550,10 @@ def _process_list(srcdir, destdir, filelist, actionfunc, result, ignore_missing=
     # links which lead to directories before processing files inside those
     # directories.
     #
+    # Be aware that this is a performance sensitive loop. The filelist could
+    # easily have 100,000 files and the block below will run for each one.
+    # Python's os.path() module is not particularly efficient so the less work
+    # we do per-file the better.
     for path in sorted(filelist):
         srcpath = os.path.join(srcdir, path)
         destpath = os.path.join(destdir, path)
