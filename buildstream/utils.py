@@ -554,6 +554,17 @@ def _process_list(srcdir, destdir, filelist, actionfunc, result, ignore_missing=
         srcpath = os.path.join(srcdir, path)
         destpath = os.path.join(destdir, path)
 
+        try:
+            file_stat = os.lstat(srcpath)
+            mode = file_stat.st_mode
+
+        except FileNotFoundError as e:
+            # Skip this missing file
+            if ignore_missing:
+                continue
+            else:
+                raise UtilError("Source file is missing: {}".format(srcpath))
+
         # Collect overlaps
         if os.path.lexists(destpath) and not os.path.isdir(destpath):
             result.overwritten.append(path)
@@ -565,17 +576,6 @@ def _process_list(srcdir, destdir, filelist, actionfunc, result, ignore_missing=
         # created before attempting to stage files across broken
         # symlink boundaries
         _ensure_real_directory(os.path.dirname(destpath))
-
-        try:
-            file_stat = os.lstat(srcpath)
-            mode = file_stat.st_mode
-
-        except FileNotFoundError as e:
-            # Skip this missing file
-            if ignore_missing:
-                continue
-            else:
-                raise UtilError("Source file is missing: {}".format(srcpath))
 
         if stat.S_ISDIR(mode):
             # Ensure directory exists in destination
