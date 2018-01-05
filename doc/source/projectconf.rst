@@ -79,8 +79,10 @@ with an artifact share.
     url: https://foo.com/artifacts
 
 
+.. _project_plugins:
+
 Plugin Origins and Versions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+---------------------------
 
 The BuildStream format is guaranteed to be backwards compatible
 with any earlier releases. The core YAML format, the format supported
@@ -96,7 +98,7 @@ Note that elements or plugins with the same name from different origins
 are not permitted.
 
 Plugin specification format
-'''''''''''''''''''''''''''
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: yaml
 
@@ -146,7 +148,7 @@ Plugin specification format
        mysource: 0
 
 Project Version Format
-''''''''''''''''''''''
+~~~~~~~~~~~~~~~~~~~~~~
 
 The project's minimum required version of buildstream is specified in
 ``project.conf`` with the ``format-version`` field, e.g.
