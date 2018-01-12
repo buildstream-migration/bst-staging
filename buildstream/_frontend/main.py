@@ -633,6 +633,12 @@ def workspace_close(app, source, remove_dir, element):
     """Close a workspace"""
 
     app.initialize((element,))
+
+    source_index = app.pipeline.validate_workspace_index(source)
+    if app.pipeline.project._get_workspace(app.pipeline.targets[0].name, source_index) is None:
+        click.echo("ERROR: Workspace {} - {}  does not exist".format(element, str(source_index)), err=True)
+        sys.exit(-1)
+
     if app.interactive and remove_dir:
         if not click.confirm('This will remove all your changes, are you sure?'):
             click.echo('Aborting', err=True)
