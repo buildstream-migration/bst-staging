@@ -74,6 +74,8 @@ To refer to a third party plugin, prefix the plugin with its package, for exampl
 
    kind: buildstream-plugins:dpkg_build
 
+.. _format_depends:
+
 
 Depends
 ~~~~~~~
@@ -90,8 +92,8 @@ definitions may depend on other elements by specifying the project relative path
 to the elements on which they depend here. See `Dependencies`_ for more information
 on the dependency model.
 
-
 .. _format_sources:
+
 
 Sources
 ~~~~~~~
@@ -168,8 +170,8 @@ build instructions are run for this element.
 
 Environment variables can also be declared and overridden in the :ref:`projectconf`
 
-
 .. _format_config:
+
 
 Config
 ~~~~~~
