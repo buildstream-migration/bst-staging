@@ -324,7 +324,29 @@ class Job():
             self.spawn(self.action, self.complete, self.max_retries)
             return
 
-        self.complete(self, returncode, element)
+        try:
+            self.complete(self, returncode, element)
+
+        except BstError as e:
+            self.message(element, MessageType.FAIL, str(e),
+                         detail=e.detail,
+                         sandbox=e.sandbox)
+
+            # Report the exception to the parent (for internal testing
+            # purposes)
+            self.child_send_error(e)
+            self.child_shutdown(1)
+
+        except Exception as e:
+            # If an unhandled (not normalized to BstError) occurs,
+            # that's a bug, send the traceback and formatted exception
+            # back to the frontend and print it to the log file.
+
+            detail = "An unhandled exception occured:\n\n{}".format(
+                traceback.format_exc())
+            self.message(element, MessageType.BUG, self.action_name,
+                         detail=detail)
+            self.child_shutdown(1)
 
     def child_shutdown(self, exit_code):
         self.queue.close()
