@@ -176,7 +176,21 @@ class Project():
         self.artifact_cache_specs = artifact_cache_specs_from_config_node(config)
 
         # Workspace configurations
+
+        # Load the workspace config
         self._workspaces = self._load_workspace_config()
+
+        # If the workspace format needs to be updated, then convert it
+        if not self._workspaces.get('version'):
+            self._workspaces = self._convert_workspace_config(self._workspaces)
+            self._save_workspace_config()
+            self._workspaces = self._load_workspace_config()
+
+        if self._workspaces.get('version') != 1:
+            raise LoadError(
+                LoadErrorReason.INVALID_DATA,
+                'Unable to parse version "{}" of workspace config'
+                .format(version))
 
         # Assert project version
         format_version = _yaml.node_get(config, int, 'format-version', default_value=0)
@@ -398,15 +412,9 @@ class Project():
         if len(self._workspaces['build-elements'][element]) == 1:
             del self._workspaces['build-elements'][element]
 
-    # _load_workspace_config()
+    # _convert_workspace_config()
     #
-    # Load the workspace configuration and return a node containing
-    # all open workspaces for the project
-    #
-    # Returns:
-    #
-    #    A node containing a dict that assigns projects to their
-    #    workspaces. For example:
+    # Converts a given pre-version-1 config into a version 1 config.
     #
     #      --- OLD FORMAT ---:
     #        amhello.bst: {
@@ -429,6 +437,39 @@ class Project():
     #            }
     #        }
     #
+    # Returns:
+    #
+    #     The new version 1 config
+    #
+    def _convert_workspace_config(self, old_config):
+        new_config = {
+            "version": 1,
+            "build-elements": {
+                element: {
+                    "sources": {
+                        index: {
+                            "path": path
+                        }
+                        for (index, path)
+                        in _yaml.node_items(indexed_source)
+                    }
+                }
+                for (element, indexed_source)
+                in _yaml.node_items(old_config)
+            }
+        }
+        return new_config
+
+    # _load_workspace_config()
+    #
+    # Load the workspace configuration and return a node containing
+    # all open workspaces for the project
+    #
+    # Returns:
+    #
+    #    A node containing a dict that assigns projects to their
+    #    workspaces.
+    #
     def _load_workspace_config(self):
         os.makedirs(os.path.join(self.directory, ".bst"), exist_ok=True)
         workspace_file = os.path.join(self.directory, ".bst", "workspaces.yml")
@@ -438,34 +479,7 @@ class Project():
             raise LoadError(LoadErrorReason.MISSING_FILE,
                             "Could not load workspace config: {}".format(e)) from e
 
-        config = _yaml.load(workspace_file)
-        version = config.get('version')
-
-        if not version:
-            # Need to change the format to be the newer form
-            return {
-                "version": 1,
-                "build-elements": {
-                    element: {
-                        "sources": {
-                            index: {
-                                "path": path
-                            }
-                            for (index, path)
-                            in _yaml.node_items(indexed_source)
-                        }
-                    }
-                    for (element, indexed_source)
-                    in _yaml.node_items(config)
-                }
-            }
-        elif version == 1:
-            # Can just use this as-is
-            return config
-        else:
-            # We do not understand this
-            raise LoadError(LoadErrorReason.INVALID_DATA,
-                            'Unable to parse version "{}" of workspace config'.format(version))
+        return _yaml.load(workspace_file)
 
     # _save_workspace_config()
     #
