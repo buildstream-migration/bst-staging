@@ -285,3 +285,34 @@ def test_list_artificial_version_1(cli, tmpdir, datafiles):
     charlie = next(workspace for workspace in workspaces if workspace['directory'] == '/workspaces/charlie')
     assert charlie['element'] == 'alpha.bst'
     assert charlie['index'] == 1
+
+
+@pytest.mark.datafiles(DATA_DIR)
+@pytest.mark.parametrize("kind", repo_kinds)
+def test_close_no_version_format(cli, tmpdir, datafiles, kind):
+    element_name, project, workspace = open_workspace(cli, tmpdir, datafiles, kind, False)
+
+    # Create a workspaces.yml with no version for the above workspace
+    workspace_dict = {
+        element_name: {
+            0: workspace,
+        },
+    }
+    _yaml.dump(workspace_dict, os.path.join(project, '.bst', 'workspaces.yml'))
+
+    # Remove it first, closing the workspace should work
+    shutil.rmtree(workspace)
+
+    # Close the workspace, which should result in no references to the
+    # workspace later.
+    result = cli.run(project=project, args=[
+        'workspace', 'close', element_name
+    ])
+    result.assert_success()
+
+    # Assert the workspace dir has been deleted
+    assert not os.path.exists(workspace)
+
+    loaded = _yaml.load(os.path.join(project, '.bst', 'workspaces.yml'))
+    assert loaded.get('version') == 1
+    assert not loaded.get('build-elements').get(element_name)
