@@ -192,12 +192,89 @@ class Pipeline():
     # Returns:
     #    (list of Element): A depth sorted list of the build plan
     #
-    def plan(self, elements):
-        # Keep locally cached elements in the plan if remote artifact cache is used
-        # to allow pulling artifact with strict cache key, if available.
-        plan_cached = not self._context.get_strict() and self._artifacts.has_fetch_remotes()
+    # Args:
+    #    directory (str): The directory to stage the source in
+    #    no_checkout (bool): Whether to skip checking out the source
+    #    track_first (bool): Whether to track and fetch first
+    #    force (bool): Whether to ignore contents in an existing directory
+    #
+    def open_workspace(self, scheduler, directory, no_checkout, track_first, force):
+        # When working on workspaces we only have one target
+        target = self.targets[0]
+        workdir = os.path.abspath(directory)
+        projectdir = self.project.directory
+        is_relative = False
+        if workdir.startswith(projectdir):
+            is_relative = True
+            workdir = os.path.relpath(workdir, projectdir)
 
-        return _Planner().plan(elements, plan_cached)
+        if not list(target.sources()):
+            build_depends = [x.name for x in target.dependencies(Scope.BUILD, recurse=False)]
+            if not build_depends:
+                raise PipelineError("The given element has no sources or build-dependencies")
+            detail = "Try opening a workspace on one of its dependencies instead:\n"
+            detail += "  \n".join(build_depends)
+            raise PipelineError("The given element has no sources", detail=detail)
+
+        # Check for workspace config
+        if self.project._get_workspace(target.name):
+            raise PipelineError("Workspace '{}' is already defined."
+                                .format(target.name))
+
+        plan = [target]
+
+        # Track/fetch if required
+        queues = []
+        track = None
+
+        if track_first:
+            track = TrackQueue()
+            queues.append(track)
+        if not no_checkout or track_first:
+            fetch = FetchQueue(skip_cached=True)
+            queues.append(fetch)
+
+        if queues:
+            queues[0].enqueue(plan)
+
+            elapsed, status = scheduler.run(queues)
+            fetched = len(fetch.processed_elements)
+
+            if status == SchedStatus.ERROR:
+                self.message(MessageType.FAIL, "Tracking failed", elapsed=elapsed)
+                raise PipelineError()
+            elif status == SchedStatus.TERMINATED:
+                self.message(MessageType.WARN,
+                             "Terminated after fetching {} elements".format(fetched),
+                             elapsed=elapsed)
+                raise PipelineError()
+            else:
+                self.message(MessageType.SUCCESS,
+                             "Fetched {} elements".format(fetched), elapsed=elapsed)
+
+        if not no_checkout and target._consistency() != Consistency.CACHED:
+            raise PipelineError("Could not stage uncached source. " +
+                                "Use `--track` to track and " +
+                                "fetch the latest version of the " +
+                                "source.")
+
+        # Check directory
+        try:
+            os.makedirs(directory, exist_ok=True)
+        except OSError as e:
+            raise PipelineError("Failed to create workspace directory: {}".format(e)) from e
+
+        if not no_checkout:
+            if not force and os.listdir(directory):
+                raise PipelineError("Checkout directory is not empty: {}".format(directory))
+
+            with target.timed_activity("Staging sources to {}".format(directory)):
+                for source in target.sources():
+                    source._init_workspace(directory)
+
+        if is_relative:
+            workdir = os.path.join(projectdir, workdir)
+        self.project._set_workspace(target, workdir)
 
     # get_selection()
     #
