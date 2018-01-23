@@ -6,11 +6,11 @@
 BuildStream on your host
 ========================
 Until BuildStream is available in your distro, there are a few hoops to jump
-through to get started.
+through to get started. Follow the instructions below to install BuildStream's
+dependencies on your system and install BuildStream itself from source.
 
-If your system cannot provide the base system requirements for BuildStream,
-then we have some instructions below which can get you started using BuildStream
-within a Docker container.
+Alternately, we have instructions on running BuildStream from a
+:ref:`prebuilt Docker container <docker>`.
 
 
 System requirements
