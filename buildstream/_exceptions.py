@@ -159,6 +159,12 @@ class LoadErrorReason(Enum):
     # Conflicting junctions in subprojects
     CONFLICTING_JUNCTION = 11
 
+    # The version of the file format can't be determined
+    NO_FORMAT_VERSION = 12
+
+    # The version of the file format is not supported
+    FORMAT_VERSION_NOT_SUPPORTED = 13
+
 
 # LoadError
 #
