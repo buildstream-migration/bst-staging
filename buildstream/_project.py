@@ -32,7 +32,7 @@ from ._options import OptionPool
 from ._artifactcache import artifact_cache_specs_from_config_node
 from ._elementfactory import ElementFactory
 from ._sourcefactory import SourceFactory
-
+from ._versionedstructure import convert_structure
 
 # The base BuildStream format version
 #
@@ -43,6 +43,15 @@ BST_FORMAT_VERSION = 0
 
 # The separator we use for user specified aliases
 _ALIAS_SEPARATOR = ':'
+
+# The version of the workspaces.yml format we actually handle
+WORKSPACES_YAML_STRUCTURE_VERSION = 0
+
+
+def _convert_workspaces_yml(workspaces):
+    converters = {}
+
+    return convert_structure(WORKSPACES_YAML_STRUCTURE_VERSION, workspaces, converters)
 
 
 # Project()
@@ -303,7 +312,8 @@ class Project():
     #    A tuple in the following format: (element, path).
     def _list_workspaces(self):
         for element, _ in _yaml.node_items(self._workspaces):
-            yield (element, self._workspaces[element])
+            if element != "version":
+                yield (element, self._workspaces[element])
 
     # _get_workspace()
     #
@@ -373,7 +383,18 @@ class Project():
             raise LoadError(LoadErrorReason.MISSING_FILE,
                             "Could not load workspace config: {}".format(e)) from e
 
-        return _yaml.load(workspace_file)
+        workspaces = _yaml.load(workspace_file)
+        if workspaces:
+            if "version" not in workspaces:
+                # If we don't find a version number, we assume that this is a
+                # legacy (un-versioned) workspaces.yml file rather than a
+                # corrupted file. By convention we set the initial version to 0
+                # and let the converters perform the required transformations.
+                workspaces["version"] = 0
+        else:
+            workspaces["version"] = WORKSPACES_YAML_STRUCTURE_VERSION
+
+        return workspaces
 
     # _ensure_workspace_config_format()
     #
@@ -389,9 +410,10 @@ class Project():
     # Raises: LoadError if there was a problem with the workspace config
     #
     def _ensure_workspace_config_format(self):
-        needs_rewrite = False
+        self._workspaces, needs_rewrite = _convert_workspaces_yml(self._workspaces)
+
         for element, config in _yaml.node_items(self._workspaces):
-            if isinstance(config, str):
+            if isinstance(config, (str, int)):
                 pass
 
             elif isinstance(config, dict):
