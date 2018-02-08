@@ -45,11 +45,42 @@ BST_FORMAT_VERSION = 0
 _ALIAS_SEPARATOR = ':'
 
 # The version of the workspaces.yml format we actually handle
-WORKSPACES_YAML_STRUCTURE_VERSION = 0
+WORKSPACES_YAML_STRUCTURE_VERSION = 1
 
 
 def _convert_workspaces_yml(workspaces):
-    converters = {}
+
+    def convert_from_v0_to_v1(v0_file):
+        v1_file = {
+            "version": 1
+        }
+        for element, config in _yaml.node_items(v0_file):
+            if isinstance(config, int):
+                pass
+
+            elif isinstance(config, str):
+                v1_file[element] = {"path": config}
+
+            elif isinstance(config, dict):
+                sources = list(_yaml.node_items(config))
+                if len(sources) > 1:
+                    detail = "There are multiple workspaces open for '{}'.\n" + \
+                             "This is not supported anymore.\n" + \
+                             "Please remove this element from '{}'."
+                    raise LoadError(LoadErrorReason.INVALID_DATA,
+                                    detail.format(element,
+                                                  os.path.join(".bst", "workspaces.yml")))
+
+                v1_file[element] = {"path": sources[0][1]}
+
+            else:
+                raise LoadError(LoadErrorReason.INVALID_DATA,
+                                "Workspace config is in unexpected format.")
+        return v1_file
+
+    converters = {
+        1: convert_from_v0_to_v1
+    }
 
     return convert_structure(WORKSPACES_YAML_STRUCTURE_VERSION, workspaces, converters)
 
@@ -313,7 +344,7 @@ class Project():
     def _list_workspaces(self):
         for element, _ in _yaml.node_items(self._workspaces):
             if element != "version":
-                yield (element, self._workspaces[element])
+                yield (element, self._workspaces[element]["path"])
 
     # _get_workspace()
     #
@@ -329,7 +360,7 @@ class Project():
     #
     def _get_workspace(self, element):
         try:
-            return self._workspaces[element]
+            return self._workspaces[element]["path"]
         except KeyError:
             return None
 
@@ -346,7 +377,7 @@ class Project():
         if element.name not in self._workspaces:
             self._workspaces[element.name] = {}
 
-        self._workspaces[element.name] = path
+        self._workspaces[element.name] = {"path": path}
         element._set_source_workspaces(path)
 
     # _delete_workspace()
@@ -411,27 +442,6 @@ class Project():
     #
     def _ensure_workspace_config_format(self):
         self._workspaces, needs_rewrite = _convert_workspaces_yml(self._workspaces)
-
-        for element, config in _yaml.node_items(self._workspaces):
-            if isinstance(config, (str, int)):
-                pass
-
-            elif isinstance(config, dict):
-                sources = list(_yaml.node_items(config))
-                if len(sources) > 1:
-                    detail = "There are multiple workspaces open for '{}'.\n" + \
-                             "This is not supported anymore.\n" + \
-                             "Please remove this element from '{}'."
-                    raise LoadError(LoadErrorReason.INVALID_DATA,
-                                    detail.format(element,
-                                                  os.path.join(self.directory, ".bst", "workspaces.yml")))
-
-                self._workspaces[element] = sources[0][1]
-                needs_rewrite = True
-
-            else:
-                raise LoadError(LoadErrorReason.INVALID_DATA,
-                                "Workspace config is in unexpected format.")
 
         if needs_rewrite:
             self._save_workspace_config()
