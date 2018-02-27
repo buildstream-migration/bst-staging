@@ -127,13 +127,16 @@ class BuildElement(Element):
         # FIXME: Currently this forcefully validates configurations
         #        for all BuildElement subclasses so they are unable to
         #        extend the configuration
-        self.node_validate(node, _command_steps)
+        self.node_validate(node, _command_steps + ['build-uid', 'build-gid'])
 
         for command_name in _legacy_command_steps:
             if command_name in _command_steps:
                 self.commands[command_name] = self._get_commands(node, command_name)
             else:
                 self.commands[command_name] = []
+
+        self.build_uid = self.node_get_member(node, int, "build-uid", 0)
+        self.build_gid = self.node_get_member(node, int, "build-gid", 0)
 
     def preflight(self):
         pass
@@ -204,7 +207,7 @@ class BuildElement(Element):
                     # if any untested command fails.
                     #
                     exitcode = sandbox.run(['sh', '-c', '-e', cmd + '\n'],
-                                           SandboxFlags.ROOT_READ_ONLY)
+                                           SandboxFlags.ROOT_READ_ONLY, uid=self.build_uid, gid=self.build_gid)
                     if exitcode != 0:
                         raise ElementError("Command '{}' failed with exitcode {}".format(cmd, exitcode))
 

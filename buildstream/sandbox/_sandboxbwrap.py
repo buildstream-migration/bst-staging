@@ -53,7 +53,7 @@ class SandboxBwrap(Sandbox):
         self.user_ns_available = kwargs['user_ns_available']
         self.die_with_parent_available = kwargs['die_with_parent_available']
 
-    def run(self, command, flags, *, cwd=None, env=None):
+    def run(self, command, flags, *, cwd=None, env=None, uid: int=0, gid: int=0):
         stdout, stderr = self._get_output()
         root_directory = self.get_directory()
 
@@ -139,7 +139,7 @@ class SandboxBwrap(Sandbox):
         if self.user_ns_available:
             bwrap_command += ['--unshare-user']
             if not flags & SandboxFlags.INHERIT_UID:
-                bwrap_command += ['--uid', '0', '--gid', '0']
+                bwrap_command += ['--uid', str(uid), '--gid', str(gid)]
 
         # Add the command
         bwrap_command += command
