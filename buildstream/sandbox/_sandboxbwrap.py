@@ -49,11 +49,12 @@ class SandboxBwrap(Sandbox):
     ]
 
     def __init__(self, *args, **kwargs):
+        print("SandboxBwrap.__init__ ({0})".format(id(self)))
         super().__init__(*args, **kwargs)
         self.user_ns_available = kwargs['user_ns_available']
         self.die_with_parent_available = kwargs['die_with_parent_available']
 
-    def run(self, command, flags, *, cwd=None, env=None, uid: int=0, gid: int=0):
+    def run(self, command, flags, *, cwd=None, env=None, uid: int=-1, gid: int=-1):
         stdout, stderr = self._get_output()
         root_directory = self.get_directory()
 
@@ -69,7 +70,12 @@ class SandboxBwrap(Sandbox):
         # We want command args as a list of strings
         if type(command) == str:
             command = [command]
-
+        print("run sandbox {4}: supplied uid/gid {0}/{1}. Sandbox uid/gid {2}/{3}".format(uid,gid,self.uid,self.gid, id(self)))
+        if uid == -1:
+            uid = self.uid or 0
+        if gid == -1:
+            gid = self.gid or 0
+        print("Effective uid/gid for run {0}/{1}".format(uid, gid))
         # Create the mount map, this will tell us where
         # each mount point needs to be mounted from and to
         mount_map = MountMap(self, flags & SandboxFlags.ROOT_READ_ONLY)

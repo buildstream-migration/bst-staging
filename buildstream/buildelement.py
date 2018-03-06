@@ -121,7 +121,7 @@ _command_steps = ['configure-commands',
 class BuildElement(Element):
 
     def configure(self, node):
-
+        super(BuildElement,self).configure(node)
         self.commands = {}
 
         # FIXME: Currently this forcefully validates configurations
@@ -134,10 +134,7 @@ class BuildElement(Element):
                 self.commands[command_name] = self._get_commands(node, command_name)
             else:
                 self.commands[command_name] = []
-
-        self.build_uid = self.node_get_member(node, int, "build-uid", 0)
-        self.build_gid = self.node_get_member(node, int, "build-gid", 0)
-
+        
     def preflight(self):
         pass
 
@@ -182,8 +179,8 @@ class BuildElement(Element):
         with self.timed_activity("Staging dependencies", silent_nested=True):
             self.stage_dependency_artifacts(sandbox, Scope.BUILD)
 
-        # Run any integration commands provided by the dependencies
-        # once they are all staged and ready
+      # Run any integration commands provided by the dependencies
+      # once they are all staged and ready
         with self.timed_activity("Integrating sandbox"):
             for dep in self.dependencies(Scope.BUILD):
                 dep.integrate(sandbox)
@@ -207,7 +204,7 @@ class BuildElement(Element):
                     # if any untested command fails.
                     #
                     exitcode = sandbox.run(['sh', '-c', '-e', cmd + '\n'],
-                                           SandboxFlags.ROOT_READ_ONLY, uid=self.build_uid, gid=self.build_gid)
+                                           SandboxFlags.ROOT_READ_ONLY)
                     if exitcode != 0:
                         raise ElementError("Command '{}' failed with exitcode {}".format(cmd, exitcode))
 

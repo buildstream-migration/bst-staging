@@ -178,6 +178,11 @@ class Element(Plugin):
         self.__public = self.__extract_public(meta)
         self.__dynamic_public = None
 
+        # Build uid/gid are only used by BuildElement but are used by all sandbox creation so need to be present
+        print("Base Element.__init__ for {0} ({1}) - setting uid/gid to 0/0".format(self.normal_name,id(self)))
+        self.build_uid = 0
+        self.build_gid = 0
+
         # Collect the composited element configuration and
         # ask the element to configure itself.
         self.__config = self.__extract_config(meta)
@@ -1662,6 +1667,13 @@ class Element(Plugin):
                 # Strong cache key could not be calculated yet
                 return
 
+
+    def configure(self, node):
+        self.build_uid = self.node_get_member(node, int, "build-uid", 0)
+        self.build_gid = self.node_get_member(node, int, "build-gid", 0)
+        print("Element.configure for {2} ({3}): reading uid {0}, {1} from config".format(self.build_uid, self.build_gid, self.normal_name, id(self)))
+
+
     #############################################################
     #                   Private Local Methods                   #
     #############################################################
@@ -1675,7 +1687,8 @@ class Element(Plugin):
             sandbox = platform.create_sandbox(context, project,
                                               directory,
                                               stdout=stdout,
-                                              stderr=stderr)
+                                              stderr=stderr,uid=self.build_uid, gid=self.build_gid)
+            print("Element.__sandbox for {2} : passing parameters uid/gid {0}/{1} => {3}".format(self.build_uid,self.build_gid, self.normal_name,id(sandbox)))
             yield sandbox
 
         else:

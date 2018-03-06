@@ -101,6 +101,9 @@ class Sandbox():
         self.__scratch = os.path.join(self.__directory, 'scratch')
         for directory in [self.__root, self.__scratch]:
             os.makedirs(directory, exist_ok=True)
+        self.uid = kwargs.get('uid', 0)
+        self.gid = kwargs.get('gid', 0)
+        print("Constructor for Sandbox ({2}): uid/gid passed in {0}/{1}".format(self.uid, self.gid, id(self)))
 
     def get_directory(self):
         """Fetches the sandbox root directory
