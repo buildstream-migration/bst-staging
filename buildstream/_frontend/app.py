@@ -280,7 +280,7 @@ class App():
                 sys.exit(-1)
 
             # Pipeline is loaded, now we can tell the logger about it
-            self.logger.size_request(self.pipeline)
+            self.logger.prepare(self.pipeline)
 
             profile_end(Topics.LOAD_PIPELINE, "_".join(t.replace(os.sep, '-') for t in elements))
 

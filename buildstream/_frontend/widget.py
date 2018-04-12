@@ -57,15 +57,15 @@ class Widget():
         # The formatting profile
         self.format_profile = format_profile
 
-    # size_request()
+    # prepare()
     #
-    # Gives the widget a chance to preflight the pipeline
-    # and figure out what size it might need for alignment purposes
+    # Gives the widget a chance to preflight the pipeline and
+    # extract any information it needs from it before rendering.
     #
     # Args:
     #    pipeline (Pipeline): The pipeline to process
     #
-    def size_request(self, pipeline):
+    def prepare(self, pipeline):
         pass
 
     # render()
@@ -189,7 +189,7 @@ class ElementName(Widget):
         # element names in the pipeline
         self.fmt_string = '{: <30}'
 
-    def size_request(self, pipeline):
+    def prepare(self, pipeline):
         longest_name = 0
         for plugin in pipeline.dependencies(Scope.ALL, include_sources=True):
             longest_name = max(len(plugin.name), longest_name)
@@ -234,7 +234,7 @@ class CacheKey(Widget):
         self.err_profile = err_profile
         self.key_length = 0
 
-    def size_request(self, pipeline):
+    def prepare(self, pipeline):
         self.key_length = pipeline.context.log_key_length
 
     def render(self, message):
@@ -266,7 +266,7 @@ class LogFile(Widget):
         self.err_profile = err_profile
         self.logdir = ''
 
-    def size_request(self, pipeline):
+    def prepare(self, pipeline):
 
         # Hold on to the logging directory so we can abbreviate
         self.logdir = pipeline.context.logdir
@@ -377,12 +377,12 @@ class LogLine(Widget):
                     raise Exception("'{0}' could not be parsed into a valid logging format.".format(format_string))
         return logfile_tokens
 
-    def size_request(self, pipeline):
+    def prepare(self, pipeline):
         for widget in self.columns:
-            widget.size_request(pipeline)
+            widget.prepare(pipeline)
 
-        self.space_widget.size_request(pipeline)
-        self.logfile_widget.size_request(pipeline)
+        self.space_widget.prepare(pipeline)
+        self.logfile_widget.prepare(pipeline)
 
     def render(self, message):
 
