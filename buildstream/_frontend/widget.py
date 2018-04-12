@@ -276,7 +276,7 @@ class LogFile(Widget):
         if message.logfile and message.scheduler:
             logfile = message.logfile
 
-            if abbrev and self.logdir != "" and logfile.startswith(self.logdir):
+            if abbrev and logfile.startswith(self.logdir):
                 logfile = logfile[len(self.logdir):]
                 logfile = logfile.lstrip(os.sep)
 
@@ -299,6 +299,10 @@ class MessageOrLogFile(Widget):
         super(MessageOrLogFile, self).__init__(content_profile, format_profile)
         self.message_widget = MessageText(content_profile, format_profile)
         self.logfile_widget = LogFile(content_profile, format_profile, err_profile)
+
+    def prepare(self, pipeline):
+        self.message_widget.prepare(pipeline)
+        self.logfile_widget.prepare(pipeline)
 
     def render(self, message):
         # Show the log file only in the main start/success messages
