@@ -688,8 +688,11 @@ class Pipeline():
         for element_name, _ in self.project.workspaces.list():
             for target in self.targets:
                 element = target.search(Scope.ALL, element_name)
-                if element is None:
-                    unused_workspaces.append(element_name)
+                if element is not None:
+                    break
+            else:
+                # element not found in any target
+                unused_workspaces.append(element_name)
         return unused_workspaces
 
     # _initialize_remote_caches()
