@@ -451,8 +451,6 @@ class App():
     #
     def open_workspace(self, target, directory, no_checkout, track_first, force):
 
-        workdir = os.path.abspath(directory)
-
         if not list(target.sources()):
             build_depends = [x.name for x in target.dependencies(Scope.BUILD, recurse=False)]
             if not build_depends:
@@ -481,7 +479,7 @@ class App():
         except OSError as e:
             raise AppError("Failed to create workspace directory: {}".format(e)) from e
 
-        self.project.workspaces.create_workspace(target.name, workdir)
+        self.project.workspaces.create_workspace(target.name, directory)
 
         if not no_checkout:
             with target.timed_activity("Staging sources to {}".format(directory)):
