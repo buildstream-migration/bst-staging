@@ -1500,6 +1500,12 @@ class Element(Plugin):
                 # Hard link files from collect dir to files directory
                 utils.link_files(collectdir, filesdir)
 
+                # Copy build tree contents
+                if self.get_variable('cache-buildtree'):
+                    sandbox_build_dir = os.path.join(sandbox_root, self.get_variable('build-root').lstrip(os.sep))
+                    if os.path.isdir(sandbox_build_dir):
+                        shutil.copytree(sandbox_build_dir, os.path.join(assembledir, 'buildtree'))
+
                 # Copy build log
                 log_filename = context.get_log_filename()
                 if log_filename:
@@ -1922,7 +1928,8 @@ class Element(Plugin):
                 'sources': [s._get_unique_key(workspace is None) for s in self.__sources],
                 'workspace': '' if workspace is None else workspace.get_key(self._get_project()),
                 'public': self.__public,
-                'cache': type(self.__artifacts).__name__
+                'cache': type(self.__artifacts).__name__,
+                'cache-buildtree': self.get_variable('cache-buildtree')
             }
 
             # fail-on-overlap setting cannot affect elements without dependencies
