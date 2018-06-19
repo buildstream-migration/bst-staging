@@ -104,9 +104,6 @@ class Context():
         # Whether elements must be rebuilt when their dependencies have changed
         self._strict_build_plan = None
 
-        # Make sure the XDG vars are set in the environment before loading anything
-        self._init_xdg()
-
         # Private variables
         self._cache_key = None
         self._message_handler = None
@@ -412,15 +409,3 @@ class Context():
     def _pop_message_depth(self):
         assert self._message_depth
         self._message_depth.popleft()
-
-    # Force the resolved XDG variables into the environment,
-    # this is so that they can be used directly to specify
-    # preferred locations of things from user configuration
-    # files.
-    def _init_xdg(self):
-        if not os.environ.get('XDG_CACHE_HOME'):
-            os.environ['XDG_CACHE_HOME'] = os.path.expanduser('~/.cache')
-        if not os.environ.get('XDG_CONFIG_HOME'):
-            os.environ['XDG_CONFIG_HOME'] = os.path.expanduser('~/.config')
-        if not os.environ.get('XDG_DATA_HOME'):
-            os.environ['XDG_DATA_HOME'] = os.path.expanduser('~/.local/share')

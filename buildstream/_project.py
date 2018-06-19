@@ -459,7 +459,9 @@ class Project():
     # _ensure_project_dir()
     #
     # Returns path of the project directory, if a configuration file is found
-    # in given directory or any of its parent directories.
+    # in given directory or any of its parent directories.  If current
+    # directory has a workspace associated with it, try to find the
+    # corresponding project
     #
     # Args:
     #    directory (str) - directory from where the command was invoked
@@ -469,6 +471,11 @@ class Project():
     #
     def _ensure_project_dir(self, directory):
         directory = os.path.abspath(directory)
+
+        workspaced_project = self._get_project_from_workspace()
+        if workspaced_project is not None:
+            return workspaced_project
+
         while not os.path.isfile(os.path.join(directory, _PROJECT_CONF_FILE)):
             parent_dir = os.path.dirname(directory)
             if directory == parent_dir:
@@ -479,3 +486,15 @@ class Project():
             directory = parent_dir
 
         return directory
+
+    def _get_project_from_workspace(self):
+        workspaces_file = os.path.join(os.environ['XDG_DATA_HOME'],
+                                       'buildstream', 'workspaces.yml')
+        if not os.path.isfile(workspaces_file):
+            return
+        workspaces = _yaml.load(workspaces_file)
+        fullpath = os.path.realpath(os.getcwd())
+        try:
+            return workspaces['workspaces'][fullpath]['project']
+        except KeyError:
+            return None

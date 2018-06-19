@@ -123,6 +123,9 @@ class App():
             # Set soft limit to hard limit
             resource.setrlimit(resource.RLIMIT_NOFILE, (limits[1], limits[1]))
 
+        # Make sure the XDG vars are set in the environment before loading anything
+        self._init_xdg()
+
     # create()
     #
     # Should be used instead of the regular constructor.
@@ -810,6 +813,18 @@ class App():
                                     default=element_path, err=True)
 
         return (project_name, format_version, element_path)
+
+    # Force the resolved XDG variables into the environment,
+    # this is so that they can be used directly to specify
+    # preferred locations of things from user configuration
+    # files.
+    def _init_xdg(self):
+        if not os.environ.get('XDG_CACHE_HOME'):
+            os.environ['XDG_CACHE_HOME'] = os.path.expanduser('~/.cache')
+        if not os.environ.get('XDG_CONFIG_HOME'):
+            os.environ['XDG_CONFIG_HOME'] = os.path.expanduser('~/.config')
+        if not os.environ.get('XDG_DATA_HOME'):
+            os.environ['XDG_DATA_HOME'] = os.path.expanduser('~/.local/share')
 
 
 #

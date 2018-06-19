@@ -214,7 +214,9 @@ class Workspaces():
     def __init__(self, toplevel_project):
         self._toplevel_project = toplevel_project
         self._bst_directory = os.path.join(toplevel_project.directory, ".bst")
+        self._local_data_directory = os.path.join(os.environ['XDG_DATA_HOME'], 'buildstream')
         self._workspaces = self._load_config()
+        self._workspace_mapping = self._load_local_config()
 
     # list()
     #
@@ -309,6 +311,24 @@ class Workspaces():
         _yaml.dump(_yaml.node_sanitize(config),
                    self._get_filename())
 
+        self._save_local_config()
+
+    # _save_local_config()
+    #
+    # Edit local workspace config in round-trip manner since this file
+    # is shared by all projects.
+    #
+    def _save_local_config(self):
+        workspaces = self._load_local_config()
+        for element, workspace in self._workspaces.items():
+            workspaces[workspace.path] = {'project': self._toplevel_project.directory,
+                                          'element': element}
+        config = {'workspaces': workspaces}
+        os.makedirs(self._local_data_directory, exist_ok=True)
+        _yaml.dump(_yaml.node_sanitize(config),
+                   self._get_local_filename())
+
+
     # _load_config()
     #
     # Loads and parses the workspace configuration
@@ -330,6 +350,29 @@ class Workspaces():
             raise
 
         return self._parse_workspace_config(node)
+
+
+    # _load_local_config()
+    #
+    # Loads and parses the workspace configuration
+    #
+    # Returns:
+    #    (dict) The extracted workspaces
+    #
+    # Raises: LoadError if there was a problem with the workspace config
+    #
+    def _load_local_config(self):
+        workspace_file = self._get_local_filename()
+        try:
+            node = _yaml.load(workspace_file)
+        except LoadError as e:
+            if e.reason == LoadErrorReason.MISSING_FILE:
+                # Return an empty dict if there was no workspace file
+                return {}
+
+            raise
+
+        return _yaml.node_get(node, dict, "workspaces", default_value={})
 
     # _parse_workspace_config_format()
     #
@@ -414,3 +457,12 @@ class Workspaces():
     #    (str): The path to workspaces.yml file.
     def _get_filename(self):
         return os.path.join(self._bst_directory, "workspaces.yml")
+
+    # _get_local_filename():
+    #
+    # Get the workspaces.yml file path.
+    #
+    # Returns:
+    #    (str): The path to workspaces.yml file.
+    def _get_local_filename(self):
+        return os.path.join(self._local_data_directory, 'workspaces.yml')
