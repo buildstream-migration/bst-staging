@@ -1,5 +1,5 @@
 #
-#  Copyright (C) 2016 Codethink Limited
+#  Copyright (C) 2016, 2018 Codethink Limited
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Lesser General Public
@@ -402,6 +402,14 @@ class SandboxBwrap(Sandbox):
                 elif e.errno == errno.ENOENT:
                     # Bubblewrap cleaned it up for us, no problem if we cant remove it
                     break
+                elif e.errno == errno.ENOTCONN:
+                    # This happens in some machines, seems there is a race sometimes
+                    # and the device is not reachable to be umounted.
+                    # Note: separate this from errno.EBUSY because when testing the time
+                    #       out happened and this error was raised, causing also a
+                    #       libffi core dump when trying to umount the devices such as
+                    #       /dev/full, /dev/null...
+                    continue
                 else:
                     # Something unexpected, reraise this error
                     raise
