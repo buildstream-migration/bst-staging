@@ -1605,7 +1605,7 @@ class Element(Plugin):
                         sandbox_build_dir = sandbox_vroot.descend(
                             self.get_variable('build-root').lstrip(os.sep).split(os.sep))
                         # Hard link files from build-root dir to buildtreedir directory
-                        sandbox_build_dir.export_files(buildtreedir)
+                        sandbox_build_dir.export_files(buildtreedir, can_destroy=True)
                     except VirtualDirectoryError:
                         # Directory could not be found. Pre-virtual
                         # directory behaviour was to continue silently
