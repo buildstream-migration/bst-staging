@@ -612,6 +612,8 @@ class CASCache(ArtifactCache):
                 symlinknode = directory.symlinks.add()
                 symlinknode.name = name
                 symlinknode.target = os.readlink(full_path)
+            elif stat.S_ISSOCK(mode):
+                pass
             else:
                 raise ArtifactError("Unsupported file type for {}".format(full_path))
 
