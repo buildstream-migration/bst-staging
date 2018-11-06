@@ -921,9 +921,20 @@ RoundTripRepresenter.add_representer(SanitizedDict,
 # Only dicts are ordered, list elements are left in order.
 #
 def node_sanitize(node):
+    # Short-circuit None which occurs ca. twice per element
+    if node is None:
+        return node
 
-    if isinstance(node, collections.Mapping):
+    node_type = type(node)
+    # Next short-circuit integers, floats, strings, booleans, and tuples
+    if node_type in (int, float, str, bool, tuple):
+        return node
+    # Now short-circuit lists
+    elif node_type is list:
+        return [node_sanitize(elt) for elt in node]
 
+    # Finally ChainMap and dict, and other Mappings need special handling
+    if node_type in (dict, ChainMap) or isinstance(node, collections.Mapping):
         result = SanitizedDict()
 
         key_list = [key for key, _ in node_items(node)]
@@ -931,10 +942,10 @@ def node_sanitize(node):
             result[key] = node_sanitize(node[key])
 
         return result
-
     elif isinstance(node, list):
         return [node_sanitize(elt) for elt in node]
 
+    # Everything else (such as commented scalars) just gets returned as-is.
     return node
 
 
