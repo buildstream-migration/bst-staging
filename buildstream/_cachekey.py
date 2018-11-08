@@ -40,3 +40,20 @@ def generate_key(value):
     ordered = _yaml.node_sanitize(value)
     string = pickle.dumps(ordered)
     return hashlib.sha256(string).hexdigest()
+
+
+# generate_key_pre_sanitized()
+#
+# Generate an sha256 hex digest from the given value. The value
+# must be (a) compatible with generate_key() and (b) already have
+# been passed through _yaml.node_sanitize()
+#
+# Args:
+#    value: A sanitized value to get a key for
+#
+# Returns:
+#    (str): An sha256 hex digest of the given value
+#
+def generate_key_pre_sanitized(value):
+    string = pickle.dumps(value)
+    return hashlib.sha256(string).hexdigest()
