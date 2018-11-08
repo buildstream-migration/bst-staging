@@ -2042,11 +2042,14 @@ class Element(Plugin):
             }
 
             self.__cache_key_dict['fatal-warnings'] = sorted(project._fatal_warnings)
+            self.__cache_key_dict['dependencies'] = []
+            self.__cache_key_dict = _yaml.node_sanitize(self.__cache_key_dict)
 
-        cache_key_dict = self.__cache_key_dict.copy()
-        cache_key_dict['dependencies'] = dependencies
+        # This replacement is safe since OrderedDict replaces the value,
+        # leaving its location in the dictionary alone.
+        self.__cache_key_dict['dependencies'] = _yaml.node_sanitize(dependencies)
 
-        return _cachekey.generate_key(cache_key_dict)
+        return _cachekey.generate_key_pre_sanitized(self.__cache_key_dict)
 
     # __can_build_incrementally()
     #
