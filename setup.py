@@ -337,7 +337,7 @@ setup(name='BuildStream',
       install_requires=[
           'setuptools',
           'psutil',
-          'ruamel.yaml < 0.15.52',
+          'ruamel.yaml >= 0.15.52',
           'pluginbase',
           'Click',
           'jinja2 >= 2.10',
