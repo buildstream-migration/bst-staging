@@ -2593,8 +2593,12 @@ class Element(Plugin):
     def __expand_environment(self, environment):
         # Resolve variables in environment value strings
         final_env = {}
-        for key, _ in self.node_items(environment):
-            final_env[key] = self.node_subst_member(environment, key)
+        try:
+            for key, value in self.node_items(environment):
+                final_env[key] = self.__variables.subst(value)
+        except LoadError as e:
+            provenance = _yaml.node_get_provenance(environment, key=key)
+            raise LoadError(e.reason, '{}: {}'.format(provenance, e), detail=e.detail) from e
 
         return final_env
 
