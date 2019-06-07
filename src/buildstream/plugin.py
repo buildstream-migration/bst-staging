@@ -244,7 +244,8 @@ class Plugin():
         # Infer the kind identifier
         modulename = type(self).__module__
         self.__kind = modulename.split('.')[-1]
-        self.debug("Created: {}".format(self))
+        if self.__context.log_debug:
+            self.debug("Created: {}".format(self))
 
         # If this plugin has been deprecated, emit a warning.
         if self.BST_PLUGIN_DEPRECATED and not self.__deprecation_warning_silenced():
