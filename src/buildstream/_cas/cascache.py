@@ -260,7 +260,7 @@ class CASCache():
                 raise CASCacheError("Failed to pull ref {}: {}".format(ref, e)) from e
             else:
                 return False
-        except BlobNotFound as e:
+        except BlobNotFound:
             return False
 
     # pull_tree():
@@ -381,6 +381,9 @@ class CASCache():
         # Exactly one of the two parameters has to be specified
         assert (path is None) != (buffer is None)
 
+        # If we're linking directly, then path must be specified.
+        assert (not link_directly) or (link_directly and path)
+
         if digest is None:
             digest = remote_execution_pb2.Digest()
 
@@ -414,7 +417,7 @@ class CASCache():
                 os.makedirs(os.path.dirname(objpath), exist_ok=True)
                 os.link(tmp.name, objpath)
 
-        except FileExistsError as e:
+        except FileExistsError:
             # We can ignore the failed link() if the object is already in the repo.
             pass
 

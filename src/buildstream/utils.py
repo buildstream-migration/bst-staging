@@ -24,6 +24,7 @@ Utilities
 import calendar
 import errno
 import hashlib
+import io
 import os
 import re
 import shutil
@@ -1013,7 +1014,7 @@ def _tempnamedfile(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefi
             temp.close()
 
     with _signals.terminator(close_tempfile), \
-        tempfile.NamedTemporaryFile(suffix=suffix, prefix=prefix, dir=dir) as temp:
+            tempfile.NamedTemporaryFile(suffix=suffix, prefix=prefix, dir=dir) as temp:
         yield temp
 
 
@@ -1276,6 +1277,51 @@ def _search_upward_for_files(directory, filenames):
             # i.e. we've reached the root of the filesystem
             return None, None
         directory = parent_dir
+
+
+# A context manager for temporary text buffers.
+#
+# This can be used instead of temporary files in some cases, saving on file I/O
+# and compatibility concerns.
+#
+# The 'stream' member can be used in a similar way to an open text file.
+#
+# The getbuffer() method returns a bytes object that may be used with e.g.
+# cas.add_object().
+#
+# Note that the format of bytes written in the buffer differ from
+# `open("tmp", "w")` in a few important ways:
+#
+# - The line separator defaults to "\\n" instead of `os.linesep`.
+# - The encoding defaults to utf-8 instead of `locale.getpreferredencoding()`.
+#
+class _TempTextBuffer():
+
+    def __init__(self):
+        self.stream = None
+
+    def __enter__(self):
+        self.stream = io.StringIO()
+        return self
+
+    def __exit__(self, *_):
+        self.stream.close()
+        self.stream = None
+
+    # get_bytes_copy()
+    #
+    # Returns a copy of the encoded bytes of the text written to the buffer.
+    #
+    # Returns:
+    #    (bytes): The encoded bytes of the text written to this buffer.
+    #
+    def get_bytes_copy(self):
+        if self.stream is None:
+            raise Exception(
+                "Must be used as a context manager in a 'with' statement.")
+        strval = self.stream.getvalue()
+        bytestring = strval.encode()
+        return bytestring
 
 
 # _deterministic_umask()
