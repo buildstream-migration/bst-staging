@@ -2206,10 +2206,19 @@ class Element(Plugin):
                 'element-plugin-version': self.BST_ARTIFACT_VERSION,
                 'sandbox': self.__sandbox_config.get_unique_key(),
                 'environment': cache_env,
-                'sources': [s._get_unique_key(workspace is None) for s in self.__sources],
-                'workspace': '' if workspace is None else workspace.get_key(self._get_project()),
                 'public': self.__public
             }
+
+            def __get_source_entry(_source):
+                return {'key': _source._key,
+                        'name': _source._get_source_name()}
+
+            def __get_workspace_entry():
+                return {'key': workspace.get_key(self._get_project())}
+
+            self.__cache_key_dict['sources'] = \
+                [__get_source_entry(s) for s in self.__sources] \
+                if workspace is None else [__get_workspace_entry]
 
             self.__cache_key_dict['fatal-warnings'] = sorted(project._fatal_warnings)
 
