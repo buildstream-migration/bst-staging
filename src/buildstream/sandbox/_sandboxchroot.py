@@ -194,6 +194,8 @@ class SandboxChroot(Sandbox):
                                    .format(rootfs, cwd)) from e
             else:
                 raise SandboxError('Could not run command {}: {}'.format(command, e)) from e
+        except PermissionError as e:
+            raise SandboxError('Permission error to run command {}: {}'.format(command, e)) from e
 
         return code
 
@@ -286,11 +288,11 @@ class SandboxChroot(Sandbox):
 
             # Remount root RO if necessary
             if flags & flags & SandboxFlags.ROOT_READ_ONLY:
-                root_mount = Mounter.mount(rootfs, stdout=stdout, stderr=stderr, remount=True, ro=True, bind=True)
                 # Since the exit stack has already registered a mount
                 # for this path, we do not need to register another
                 # umount call.
-                root_mount.__enter__()
+                stack.enter_context(Mounter.mount(rootfs, stdout=stdout, stderr=stderr, unmount=False,
+                                                  remount=True, ro=True, bind=True))
 
             yield
 
