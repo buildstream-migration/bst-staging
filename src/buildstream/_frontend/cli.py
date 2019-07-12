@@ -10,6 +10,7 @@ from .. import _yaml
 from .._exceptions import BstError, LoadError, AppError
 from .._versions import BST_FORMAT_VERSION
 from .complete import main_bashcomplete, complete_path, CompleteUnhandled
+from ..utils import _get_compression, UtilError
 
 
 ##################################################################
@@ -968,6 +969,9 @@ def artifact():
               help="Create a tarball from the artifact contents instead "
                    "of a file tree. If LOCATION is '-', the tarball "
                    "will be dumped to the standard output.")
+@click.option('--compression', default=None,
+              type=click.Choice(['gz', 'xz', 'bz2']),
+              help="The compression option of the tarball created.")
 @click.option('--pull', 'pull_', default=False, is_flag=True,
               help="Whether to pull the artifact if it's missing or "
                    "incomplete.")
@@ -977,7 +981,7 @@ def artifact():
 @click.argument('element', required=False,
                 type=click.Path(readable=False))
 @click.pass_obj
-def artifact_checkout(app, force, deps, integrate, hardlinks, tar, pull_, directory, element):
+def artifact_checkout(app, force, deps, integrate, hardlinks, tar, compression, pull_, directory, element):
     """Checkout contents of an artifact
 
     When this command is executed from a workspace directory, the default
@@ -985,24 +989,35 @@ def artifact_checkout(app, force, deps, integrate, hardlinks, tar, pull_, direct
     """
     from ..element import Scope
 
-    if hardlinks and tar is not None:
+    if hardlinks and tar:
         click.echo("ERROR: options --hardlinks and --tar conflict", err=True)
         sys.exit(-1)
 
-    if tar is None and directory is None:
+    if not tar and not directory:
         click.echo("ERROR: One of --directory or --tar must be provided", err=True)
         sys.exit(-1)
 
-    if tar is not None and directory is not None:
+    if tar and directory:
         click.echo("ERROR: options --directory and --tar conflict", err=True)
         sys.exit(-1)
 
-    if tar is not None:
-        location = tar
-        tar = True
+    if not tar:
+        if compression:
+            click.echo("ERROR: --compression can only be provided if --tar is provided", err=True)
+            sys.exit(-1)
+        location = directory
     else:
-        location = os.getcwd() if directory is None else directory
-        tar = False
+        location = tar
+        try:
+            inferred_compression = _get_compression(tar)
+        except UtilError as e:
+            click.echo(str(e), err=True)
+            sys.exit(-1)
+        if compression and inferred_compression != '' and inferred_compression != compression:
+            click.echo("WARNING: File extension and compression differ."
+                       "File extension has been overridden by --compression", err=True)
+        if not compression:
+            compression = inferred_compression
 
     if deps == "build":
         scope = Scope.BUILD
@@ -1023,8 +1038,9 @@ def artifact_checkout(app, force, deps, integrate, hardlinks, tar, pull_, direct
                             scope=scope,
                             integrate=True if integrate is None else integrate,
                             hardlinks=hardlinks,
-                            tar=tar,
-                            pull=pull_)
+                            pull=pull_,
+                            compression=compression,
+                            tar=bool(tar))
 
 
 ################################################################

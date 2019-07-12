@@ -1351,3 +1351,31 @@ def _deterministic_umask():
         yield
     finally:
         os.umask(old_umask)
+
+
+# _get_compression:
+#
+# Given a file name infer the compression
+#
+# Args:
+#    tar (str): The file name from which to determine compression
+#
+# Returns:
+#    (str): One from '', 'gz', 'xz', 'bz2'
+#
+#
+def _get_compression(tar):
+    mapped_extensions = {'.tar': '', '.gz': 'gz', '.xz': 'xz', '.bz2': 'bz2'}
+
+    name, ext = os.path.splitext(tar)
+
+    try:
+        return mapped_extensions[ext]
+    except KeyError:
+        _, suffix = os.path.splitext(name)
+        if suffix == '.tar':
+            raise UtilError("ERROR: invalid file extension ('{}') given with --tar, "
+                            "supported extensions are ('.tar'), ('.gz'), ('.xz'), ('.bz2')".format(ext))
+        else:
+            # Don't compress
+            return ''
