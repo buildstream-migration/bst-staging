@@ -356,7 +356,7 @@ class Workspace():
     # Returns:
     #    (str) A unique key for this workspace
     #
-    def get_key(self, recalculate=False):
+    def get_key(self):
         def unique_key(filename):
             try:
                 stat = os.lstat(filename)
@@ -367,7 +367,7 @@ class Workspace():
             # Use the mtime of any file with sub second precision
             return stat.st_mtime_ns
 
-        if recalculate or self._key is None:
+        if self._key is None:
             fullpath = self.get_absolute_path()
 
             excluded_files = (WORKSPACE_PROJECT_FILE,)

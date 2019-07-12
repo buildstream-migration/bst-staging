@@ -2214,7 +2214,7 @@ class Element(Plugin):
                         'name': _source._get_source_name()}
 
             def __get_workspace_entry():
-                return {'key': workspace.get_key(self._get_project())}
+                return {'key': workspace.get_key()}
 
             self.__cache_key_dict['sources'] = \
                 [__get_source_entry(s) for s in self.__sources] \
