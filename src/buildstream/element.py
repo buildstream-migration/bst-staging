@@ -1189,7 +1189,6 @@ class Element(Plugin):
             return
 
         if self._get_workspace() and self.__assemble_scheduled:
-            self.__reset_cache_data()
             return
 
         self.__update_cache_keys()
