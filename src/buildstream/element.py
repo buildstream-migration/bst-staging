@@ -1188,12 +1188,6 @@ class Element(Plugin):
             # Tracking may still be pending
             return
 
-        if self._get_workspace() and self.__assemble_scheduled:
-            return
-
-        self.__update_cache_keys()
-        self.__update_artifact_state()
-
         # Workspaces are initially marked with unstable cache keys. Keys will be
         # marked stable either when we verify that the workspace is already
         # cached, or when we build/pull the workspaced element.
@@ -1203,6 +1197,8 @@ class Element(Plugin):
                 if not self.__assemble_scheduled:
                     self._schedule_assemble()
 
+        self.__update_cache_keys()
+        self.__update_artifact_state()
         self.__update_cache_keys_stability()
 
         # Workspaced sources are considered unstable if a build is pending
@@ -3048,6 +3044,7 @@ class Element(Plugin):
         self.__strict_cache_key = None
         self.__artifact = None
         self.__strict_artifact = None
+        self.__cache_keys_unstable = None
 
     # __update_cache_keys()
     #
@@ -3076,6 +3073,9 @@ class Element(Plugin):
                 self.__cache_keys_unstable = True
             else:
                 self.__cache_keys_unstable = False
+
+        if self.__cache_keys_unstable:
+            self.__reset_cache_data()
 
         if self.__weak_cache_key is None:
             # Calculate weak cache key
