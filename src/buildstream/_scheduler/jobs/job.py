@@ -20,14 +20,16 @@
 #        Tristan Maat <tristan.maat@codethink.co.uk>
 
 # System imports
+import asyncio
+import datetime
+import io
+import multiprocessing
 import os
 import pickle
-import sys
 import signal
-import datetime
+import sys
+import time
 import traceback
-import asyncio
-import multiprocessing
 
 # BuildStream toplevel imports
 from ..._exceptions import ImplError, BstError, set_last_task_error, SkipJob
@@ -45,6 +47,21 @@ class _ReturnCode(FastEnum):
     FAIL = 1
     PERM_FAIL = 2
     SKIPPED = 3
+
+
+def _call_on_waitpid_threadfun(running_loop, process, callback):
+    process.join()
+    running_loop.call_soon_threadsafe(callback, process.pid, process.exitcode)
+
+
+def call_on_waitpid(running_loop, pid, callback):
+    import threading
+    t = threading.Thread(
+        target=_call_on_waitpid_threadfun,
+        args=(running_loop, pid, callback)
+    )
+    t.start()
+    return t
 
 
 # JobStatus:
@@ -212,12 +229,21 @@ class Job():
         )
 
         if self._scheduler.context.platform.does_multiprocessing_start_require_pickling():
+            then = time.time()
             pickled = pickle_child_job(
                 child_job, self._scheduler.context.get_projects())
+            now = time.time()
+            pickled.seek(0, io.SEEK_END)
+            self.message(MessageType.INFO, "pickled len: {:,}".format(pickled.tell()))
+            self.message(MessageType.INFO, "pickle time: {}s".format(round(now - then, 2)))
+            pickled.seek(0)
+            then = time.time()
             self._process = Process(
                 target=_do_pickled_child_job,
                 args=[pickled, self._queue],
             )
+            now = time.time()
+            self.message(MessageType.INFO, "make process: {}s".format(round(now - then, 2)))
         else:
             self._process = Process(
                 target=child_job.child_action,
@@ -228,8 +254,11 @@ class Job():
         # the child process does not inherit the parent's state, but the main
         # process will be notified of any signal after we launch the child.
         #
-        with _signals.blocked([signal.SIGINT, signal.SIGTSTP, signal.SIGTERM], ignore=False):
+        then = time.time()
+        with _signals.blocked([signal.SIGINT, signal.SIGTERM], ignore=False):
             self._process.start()
+        now = time.time()
+        self.message(MessageType.INFO, "start process: {}s".format(round(now - then, 2)))
 
         # Wait for the child task to complete.
         #
@@ -253,8 +282,7 @@ class Job():
         # an event loop callback. Otherwise, if the job completes too fast, then
         # the callback is called immediately.
         #
-        self._watcher = asyncio.get_child_watcher()
-        self._watcher.add_child_handler(self._process.pid, self._parent_child_completed)
+        self._watcher = call_on_waitpid(self._scheduler.loop, self._process, self._parent_child_completed)
 
     # terminate()
     #
@@ -734,15 +762,15 @@ class ChildJob():
 
         # This avoids some SIGTSTP signals from grandchildren
         # getting propagated up to the master process
-        os.setsid()
+        #os.setsid()
 
         # First set back to the default signal handlers for the signals
         # we handle, and then clear their blocked state.
         #
-        signal_list = [signal.SIGTSTP, signal.SIGTERM]
-        for sig in signal_list:
-            signal.signal(sig, signal.SIG_DFL)
-        signal.pthread_sigmask(signal.SIG_UNBLOCK, signal_list)
+        #signal_list = [signal.SIGTSTP, signal.SIGTERM]
+        #for sig in signal_list:
+        #    signal.signal(sig, signal.SIG_DFL)
+        #signal.pthread_sigmask(signal.SIG_UNBLOCK, signal_list)
 
         # Assign the queue we passed across the process boundaries
         #
