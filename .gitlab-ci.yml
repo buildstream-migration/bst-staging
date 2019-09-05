@@ -17,8 +17,9 @@ variables:
   PYTEST_ADDOPTS: "--color=yes"
   INTEGRATION_CACHE: "${CI_PROJECT_DIR}/cache/integration-cache"
   PYTEST_ARGS: "--color=yes --integration -n 2"
-  TEST_COMMAND: "tox -- ${PYTEST_ARGS}"
-  EXTERNAL_TESTS_COMMAND: "tox -e py{35,36,37}-external -- ${PYTEST_ARGS}"
+  DEBUG_TEST: "tests/frontend/workspace.py"
+  TEST_COMMAND: "tox -- ${DEBUG_TEST} ${PYTEST_ARGS}"
+  EXTERNAL_TESTS_COMMAND: "tox -e py{35,36,37}-external -- ${DEBUG_TEST} ${PYTEST_ARGS}"
   COVERAGE_PREFIX: "${CI_JOB_NAME}."
 
 
