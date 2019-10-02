@@ -120,6 +120,11 @@ class CASCache():
                     break
                 except grpc.RpcError as e:
                     if e.code() == grpc.StatusCode.UNAVAILABLE:
+                        # Either casd is not ready or it is dead
+                        if self._casd_process.poll() is not None:
+                            raise CASCacheError("Local buildbox-casd process died with return code: {}".format(
+                                self._casd_process.returncode))
+
                         # casd is not ready yet, try again after a 10ms delay,
                         # but don't wait for more than 15s
                         if time.time() < self._casd_start_time + 15:
