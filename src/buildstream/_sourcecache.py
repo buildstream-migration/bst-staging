@@ -127,16 +127,6 @@ class SourceCache(BaseCache):
     def __init__(self, context):
         super().__init__(context, context.sourcecachedir)
 
-    # list_sources()
-    #
-    # Get list of all sources in the `sources_protos/` folder
-    #
-    # Returns:
-    #     ([str]): iterable over all source refs
-    #
-    def list_sources(self):
-        return [ref for _, ref in self._list_refs_mtimes(self.refdir)]
-
     # contains()
     #
     # Given a source, gets the ref name and checks whether the local CAS
