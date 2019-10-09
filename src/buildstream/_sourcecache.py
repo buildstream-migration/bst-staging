@@ -344,12 +344,6 @@ class SourceCache(BaseCache):
 
                 yield source.files
 
-    def _update_mtime(self, ref):
-        try:
-            os.utime(self._source_path(ref))
-        except FileNotFoundError as e:
-            raise SourceCacheError("Couldn't find source: {}".format(ref)) from e
-
     def _pull_source(self, source_ref, remote):
         try:
             remote.init()

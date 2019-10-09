@@ -263,6 +263,12 @@ class BaseCache():
             return (any(remote.spec.push for remote in index_remotes) and
                     any(remote.spec.push for remote in storage_remotes))
 
+    def update_mtime(self, ref):
+        try:
+            os.utime(os.path.join(self.refdir, ref))
+        except FileNotFoundError as e:
+            raise self.spec_error("Couldn't find ref: {}".format(ref)) from e
+
     ################################################
     #               Local Private Methods          #
     ################################################

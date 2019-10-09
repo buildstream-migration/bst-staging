@@ -142,12 +142,6 @@ class ArtifactCache(BaseCache):
     def __init__(self, context):
         super().__init__(context, context.artifactdir)
 
-    def update_mtime(self, ref):
-        try:
-            os.utime(os.path.join(self.refdir, ref))
-        except FileNotFoundError as e:
-            raise ArtifactError("Couldn't find artifact: {}".format(ref)) from e
-
     # preflight():
     #
     # Preflight check.
