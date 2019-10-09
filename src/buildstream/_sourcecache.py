@@ -127,7 +127,7 @@ class SourceCache(BaseCache):
     def __init__(self, context):
         super().__init__(context)
 
-        self.sourcerefdir = os.path.join(context.cachedir, 'source_protos')
+        self.sourcerefdir = context.sourcecachedir
         os.makedirs(self.sourcerefdir, exist_ok=True)
 
     # list_sources()

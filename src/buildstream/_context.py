@@ -79,6 +79,9 @@ class Context():
         # The directory for artifact protos
         self.artifactdir = None
 
+        # The directory for source protos
+        self.sourcecachedir = None
+
         # The directory for temporary files
         self.tmpdir = None
 
@@ -264,6 +267,7 @@ class Context():
         self.casdir = os.path.join(self.cachedir, 'cas')
         self.builddir = os.path.join(self.cachedir, 'build')
         self.artifactdir = os.path.join(self.cachedir, 'artifacts', 'refs')
+        self.sourcecachedir = os.path.join(self.cachedir, 'source_protos')
 
         # Move old artifact cas to cas if it exists and create symlink
         old_casdir = os.path.join(self.cachedir, 'artifacts', 'cas')
