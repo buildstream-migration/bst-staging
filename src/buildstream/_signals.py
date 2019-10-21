@@ -86,16 +86,16 @@ def terminator(terminate_func):
         yield
         return
 
-    outermost = bool(not terminator_stack)
+    is_outermost = bool(not terminator_stack)
 
     terminator_stack.append(terminate_func)
-    if outermost:
+    if is_outermost:
         original_handler = signal.signal(signal.SIGTERM, terminator_handler)
 
     try:
         yield
     finally:
-        if outermost:
+        if is_outermost:
             signal.signal(signal.SIGTERM, original_handler)
         terminator_stack.pop()
 
@@ -144,19 +144,25 @@ def suspend_handler(sig, frame):
 #
 @contextmanager
 def suspendable(suspend_callback, resume_callback):
+    if sys.platform == 'win32':
+        # Win32 does not support SIGTSTP, at least up to Windows 10, so we
+        # won't be able to handle it here.
+        yield
+        return
+
     global suspendable_stack                  # pylint: disable=global-statement
 
-    outermost = bool(not suspendable_stack)
+    is_outermost = bool(not suspendable_stack)
     suspender = Suspender(suspend_callback, resume_callback)
     suspendable_stack.append(suspender)
 
-    if outermost:
+    if is_outermost:
         original_stop = signal.signal(signal.SIGTSTP, suspend_handler)
 
     try:
         yield
     finally:
-        if outermost:
+        if is_outermost:
             signal.signal(signal.SIGTSTP, original_stop)
 
         suspendable_stack.pop()
@@ -173,6 +179,11 @@ def suspendable(suspend_callback, resume_callback):
 #
 @contextmanager
 def blocked(signal_list, ignore=True):
+    if sys.platform == 'win32':
+        # Win32 does not support any signals that we are interested in, and we
+        # also can't use `signal.phtread_sigmask`, so early out here.
+        yield
+        return
 
     with ExitStack() as stack:
 
