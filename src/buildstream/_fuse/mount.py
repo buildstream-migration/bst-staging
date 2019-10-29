@@ -91,25 +91,31 @@ class Mount():
     def __init__(self, fuse_mount_options=None):
         self._fuse_mount_options = {} if fuse_mount_options is None else fuse_mount_options
 
-    # mount():
+    # __mount():
     #
     # User facing API for mounting a fuse subclass implementation
     #
     # Args:
     #    (str): Location to mount this fuse fs
     #
-    def mount(self, mountpoint):
+    def __mount(self, mountpoint):
 
         assert self.__process is None
 
         self.__mountpoint = mountpoint
-        self.__process = Process(target=self.__run_fuse, args=(self.__logfile.name,))
+
+        self.__process = Process(target=self._run_fuse, args=(self.__logfile.name,))
 
         # Ensure the child process does not inherit our signal handlers, if the
         # child wants to handle a signal then it will first set its own
         # handler, and then unblock it.
         with _signals.blocked([signal.SIGTERM, signal.SIGTSTP, signal.SIGINT], ignore=False):
+            # Note that the temporary __logfile isn't picklable, so we must make
+            # sure it is not part of `self` when spawning a process.
+            logfile = self.__logfile
+            self.__logfile = None
             self.__process.start()
+            self.__logfile = logfile
 
         while not os.path.ismount(mountpoint):
             if not self.__process.is_alive():
@@ -119,11 +125,11 @@ class Mount():
 
             time.sleep(1 / 100)
 
-    # unmount():
+    # __unmount():
     #
     # User facing API for unmounting a fuse subclass implementation
     #
-    def unmount(self):
+    def __unmount(self):
 
         # Terminate child process and join
         if self.__process is not None:
@@ -156,12 +162,12 @@ class Mount():
         with utils._tempnamedfile() as logfile:
             self.__logfile = logfile
 
-            self.mount(mountpoint)
+            self.__mount(mountpoint)
             try:
-                with _signals.terminator(self.unmount):
+                with _signals.terminator(self.__unmount):
                     yield
             finally:
-                self.unmount()
+                self.__unmount()
 
         self.__logfile = None
 
@@ -182,7 +188,7 @@ class Mount():
     ################################################
     #                Child Process                 #
     ################################################
-    def __run_fuse(self, filename):
+    def _run_fuse(self, filename):
         # Override stdout/stderr to the file given as a pointer, that way our parent process can get our output
         out = open(filename, "w")
         os.dup2(out.fileno(), sys.stdout.fileno())
