@@ -11,7 +11,7 @@ from buildstream._cas import CASCache
 from buildstream._cas.casserver import create_server
 from buildstream._exceptions import CASError
 from buildstream._protos.build.bazel.remote.execution.v2 import remote_execution_pb2
-from buildstream._protos.buildstream.v2 import artifact_pb2
+from buildstream._protos.buildstream.v2 import artifact_pb2, source_pb2
 
 
 # ArtifactShare()
@@ -39,11 +39,10 @@ class ArtifactShare():
         # in tests as a remote artifact push/pull configuration
         #
         self.repodir = os.path.join(self.directory, 'repo')
-        os.makedirs(self.repodir)
-        self.artifactdir = os.path.join(self.repodir, 'artifacts', 'refs')
-        os.makedirs(self.artifactdir)
 
         self.cas = CASCache(self.repodir, casd=casd)
+        self.artifactdir = os.path.join(self.repodir, 'artifacts', 'refs')
+        self.sourcedir = os.path.join(self.repodir, 'source_protos', 'refs')
 
         self.quota = quota
         self.index_only = index_only
@@ -129,6 +128,17 @@ class ArtifactShare():
 
         return artifact_proto
 
+    def get_source_proto(self, source_name):
+        source_proto = source_pb2.Source()
+        source_path = os.path.join(self.sourcedir, source_name)
+
+        try:
+            with open(source_path, 'rb') as f:
+                source_proto.ParseFromString(f.read())
+        except FileNotFoundError:
+            return None
+        return source_proto
+
     def get_cas_files(self, artifact_proto):
 
         reachable = set()
@@ -184,8 +194,6 @@ class ArtifactShare():
         self.process.join()
 
         self.cas.release_resources()
-
-        shutil.rmtree(self.directory)
 
 
 # create_artifact_share()

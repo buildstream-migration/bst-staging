@@ -1453,7 +1453,7 @@ class Element(Plugin):
         # It's advantageous to have this temporary directory on
         # the same file system as the rest of our cache.
         with self.timed_activity("Staging sources", silent_nested=True), \
-            utils._tempdir(dir=context.tmpdir, prefix='staging-temp') as temp_staging_directory:
+            utils._group_tempdir(dir=context.tmpdir, prefix='staging-temp') as temp_staging_directory:
 
             import_dir = temp_staging_directory
 
@@ -1644,13 +1644,8 @@ class Element(Plugin):
 
             # Explicitly clean it up, keep the build dir around if exceptions are raised
             os.makedirs(context.builddir, exist_ok=True)
-            rootdir = tempfile.mkdtemp(prefix="{}-".format(self.normal_name), dir=context.builddir)
 
-            # Cleanup the build directory on explicit SIGTERM
-            def cleanup_rootdir():
-                utils._force_rmtree(rootdir)
-
-            with _signals.terminator(cleanup_rootdir), \
+            with utils._group_tempdir(prefix="{}-".format(self.normal_name), dir=context.builddir) as rootdir, \
                 self.__sandbox(rootdir, output_file, output_file, self.__sandbox_config) as sandbox:  # noqa
 
                 # Let the sandbox know whether the buildtree will be required.
@@ -1703,8 +1698,6 @@ class Element(Plugin):
                     raise
                 else:
                     return self._cache_artifact(rootdir, sandbox, collect)
-                finally:
-                    cleanup_rootdir()
 
     def _cache_artifact(self, rootdir, sandbox, collect):
 
