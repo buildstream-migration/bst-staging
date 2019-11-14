@@ -127,20 +127,7 @@ class SourceCache(BaseCache):
     index_remote_class = SourceRemote
 
     def __init__(self, context):
-        super().__init__(context)
-
-        self.sourcerefdir = os.path.join(context.cachedir, 'source_protos')
-        os.makedirs(self.sourcerefdir, exist_ok=True)
-
-    # list_sources()
-    #
-    # Get list of all sources in the `sources_protos/` folder
-    #
-    # Returns:
-    #     ([str]): iterable over all source refs
-    #
-    def list_sources(self):
-        return [ref for _, ref in self._list_refs_mtimes(self.sourcerefdir)]
+        super().__init__(context, context.sourcecachedir)
 
     # contains()
     #
@@ -328,9 +315,6 @@ class SourceCache(BaseCache):
 
         return pushed_index and pushed_storage
 
-    def _remove_source(self, ref, *, defer_prune=False):
-        return self.cas.remove(ref, basedir=self.sourcerefdir, defer_prune=defer_prune)
-
     def _store_source(self, ref, digest):
         source_proto = source_pb2.Source()
         source_proto.files.CopyFrom(digest)
@@ -355,22 +339,16 @@ class SourceCache(BaseCache):
                                    .format(e)) from e
 
     def _source_path(self, ref):
-        return os.path.join(self.sourcerefdir, ref)
+        return os.path.join(self.refdir, ref)
 
     def _reachable_directories(self):
-        for root, _, files in os.walk(self.sourcerefdir):
+        for root, _, files in os.walk(self.refdir):
             for source_file in files:
                 source = source_pb2.Source()
                 with open(os.path.join(root, source_file), 'r+b') as f:
                     source.ParseFromString(f.read())
 
                 yield source.files
-
-    def _update_mtime(self, ref):
-        try:
-            os.utime(self._source_path(ref))
-        except FileNotFoundError as e:
-            raise SourceCacheError("Couldn't find source: {}".format(ref)) from e
 
     def _pull_source(self, source_ref, remote):
         try:

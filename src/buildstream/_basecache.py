@@ -47,9 +47,12 @@ class BaseCache():
     index_remote_class = None         # type: Type[BaseRemote]
     storage_remote_class = CASRemote  # type: Type[BaseRemote]
 
-    def __init__(self, context):
+    def __init__(self, context, refdir):
         self.context = context
         self.cas = context.get_cascache()
+
+        self.refdir = refdir
+        os.makedirs(self.refdir, exist_ok=True)
 
         self._remotes_setup = False           # Check to prevent double-setup of remotes
         # Per-project list of Remote instances.
@@ -268,6 +271,12 @@ class BaseCache():
             storage_remotes = self._storage_remotes[plugin._get_project()]
             return (any(remote.spec.push for remote in index_remotes) and
                     any(remote.spec.push for remote in storage_remotes))
+
+    def update_mtime(self, ref):
+        try:
+            os.utime(os.path.join(self.refdir, ref))
+        except FileNotFoundError as e:
+            raise self.spec_error("Couldn't find ref: {}".format(ref)) from e
 
     ################################################
     #               Local Private Methods          #

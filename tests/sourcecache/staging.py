@@ -57,6 +57,8 @@ def test_source_staged(tmpdir, cli, datafiles):
 
     with dummy_context() as context:
         context.cachedir = cachedir
+        context.sourcecachedir = os.path.join(cachedir, "source_protos")
+
         # load project and sourcecache
         project = Project(project_dir, context)
         project.ensure_fully_loaded()
@@ -95,6 +97,8 @@ def test_source_fetch(tmpdir, cli, datafiles):
 
     with dummy_context() as context:
         context.cachedir = cachedir
+        context.sourcecachedir = os.path.join(cachedir, "source_protos")
+
         # load project and sourcecache
         project = Project(project_dir, context)
         project.ensure_fully_loaded()
