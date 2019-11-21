@@ -225,7 +225,7 @@ class TarSource(DownloadableFileSource):
                         try:
                             # Dont yield directory members which actually do
                             # exist in the archive
-                            _ = tar.getmember(dir_component)
+                            tar.getmember(dir_component)
                         except KeyError:
                             if dir_component != ".":
                                 yield dir_component
