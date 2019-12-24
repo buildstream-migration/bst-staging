@@ -233,6 +233,9 @@ class App:
                 indent=INDENT,
             )
 
+            # Register the Logline pipeline renderer callback in Stream
+            self.stream._pipeline_render_callback = self.logger.show_pipeline
+
             # Propagate pipeline feedback to the user
             self.context.messenger.set_message_handler(self._message_handler)
 
@@ -300,39 +303,28 @@ class App:
             try:
                 yield
             except BstError as e:
+                self._handle_run_exception(e, session_name)
 
-                # Print a nice summary if this is a session
-                if session_name:
-                    elapsed = self.stream.elapsed_time
-
-                    if isinstance(e, StreamError) and e.terminated:  # pylint: disable=no-member
-                        self._message(MessageType.WARN, session_name + " Terminated", elapsed=elapsed)
-                    else:
-                        self._message(MessageType.FAIL, session_name, elapsed=elapsed)
-
-                        # Notify session failure
-                        self._notify("{} failed".format(session_name), e)
-
-                    if self._started:
-                        self._print_summary()
-
-                # Exit with the error
-                self._error_exit(e)
             except RecursionError:
                 click.echo(
                     "RecursionError: Dependency depth is too large. Maximum recursion depth exceeded.", err=True
                 )
                 sys.exit(-1)
 
-            else:
+            if self.context._subprocess_exception:
+                # If a handled exception was thrown in a Stream subprocessed asyncio method, handle it
+                if isinstance(self.context._subprocess_exception, BstError):
+                    self._handle_run_exception(self.context._subprocess_exception, session_name)
+                else:
+                    # We don't gracefully handle non BstError() Excpetions
+                    raise self.context._subprocess_exception  # pylint: disable=raising-bad-type
+            elif session_name:
                 # No exceptions occurred, print session time and summary
-                if session_name:
-                    self._message(MessageType.SUCCESS, session_name, elapsed=self.stream.elapsed_time)
-                    if self._started:
-                        self._print_summary()
-
-                    # Notify session success
-                    self._notify("{} succeeded".format(session_name), "")
+                self._message(MessageType.SUCCESS, session_name, elapsed=self.stream.elapsed_time)
+                if self._started:
+                    self._print_summary()
+                # Notify session success
+                self._notify("{} succeeded".format(session_name), "")
 
     # init_project()
     #
@@ -684,7 +676,13 @@ class App:
                         unique_id, element_key = element
                         prompt = self.shell_prompt(full_name, element_key)
                         self.stream.shell(
-                            None, Scope.BUILD, prompt, isolate=True, usebuildtree="always", unique_id=unique_id
+                            None,
+                            Scope.BUILD,
+                            prompt,
+                            isolate=True,
+                            usebuildtree="always",
+                            unique_id=unique_id,
+                            full_name=full_name,
                         )
                     except BstError as e:
                         click.echo("Error while attempting to create interactive shell: {}".format(e), err=True)
@@ -965,6 +963,24 @@ class App:
         )
 
         return (project_name, format_version, element_path)
+
+    def _handle_run_exception(self, exception: BstError, session_name: str) -> None:
+        # Print a nice summary if this is a session
+        if session_name:
+            elapsed = self.stream.elapsed_time
+
+            if isinstance(exception, StreamError) and exception.terminated:  # pylint: disable=no-member
+                self._message(MessageType.WARN, session_name + " Terminated", elapsed=elapsed)
+            else:
+                self._message(MessageType.FAIL, session_name, elapsed=elapsed)
+
+                # Notify session failure
+                self._notify("{} failed".format(session_name), exception)
+
+            if self._started:
+                self._print_summary()
+
+        self._error_exit(exception)
 
 
 #

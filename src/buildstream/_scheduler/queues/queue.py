@@ -30,7 +30,7 @@ from ..jobs import ElementJob, JobStatus
 from ..resources import ResourceType
 
 # BuildStream toplevel imports
-from ..._exceptions import BstError, ImplError, set_last_task_error
+from ..._exceptions import BstError, ImplError
 from ..._message import Message, MessageType
 from ...types import FastEnum
 
@@ -86,6 +86,9 @@ class Queue:
             self._max_retries = scheduler.context.sched_network_retries
 
         self._task_group = self._scheduler._state.add_task_group(self.action_name, self.complete_name)
+        self._scheduler._state.register_task_groups_changed_callback(
+            self._scheduler._update_task_groups, name=self.action_name
+        )
 
     # destroy()
     #
@@ -316,7 +319,7 @@ class Queue:
             #
             # This just allows us stronger testing capability
             #
-            set_last_task_error(e.domain, e.reason)
+            self._scheduler.set_last_task_error(e.domain, e.reason)
 
         except Exception:  # pylint: disable=broad-except
 

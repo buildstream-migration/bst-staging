@@ -67,6 +67,14 @@ class NotificationType(FastEnum):
     SUSPENDED = "suspended"
     RETRY = "retry"
     MESSAGE = "message"
+    TASK_ERROR = "task_error"
+    EXCEPTION = "exception"
+    START = "start"
+    TASK_GROUPS = "task_groups"
+    ELEMENT_TOTALS = "element_totals"
+    FINISH = "finish"
+    SIGTSTP = "sigstp"
+    SHOW_PIPELINE = "show_pipeline"
 
 
 # Notification()
@@ -87,7 +95,12 @@ class Notification:
         job_status=None,
         time=None,
         element=None,
-        message=None
+        message=None,
+        task_error=None,
+        exception=None,
+        task_groups=None,
+        element_totals=None,
+        show_pipeline=None
     ):
         self.notification_type = notification_type
         self.full_name = full_name
@@ -96,6 +109,11 @@ class Notification:
         self.time = time
         self.element = element
         self.message = message
+        self.task_error = task_error  # Tuple of domain & reason
+        self.exception = exception
+        self.task_groups = task_groups  # Tuple of queue name, complete name, task change, & optional element name
+        self.element_totals = element_totals
+        self.show_pipeline = show_pipeline  # Output of LogLine.show_pipeline() cb, to represent pipeline state
 
 
 # Scheduler()
@@ -119,7 +137,7 @@ class Notification:
 #    ticker_callback: A callback call once per second
 #
 class Scheduler:
-    def __init__(self, context, start_time, state, notification_queue, notifier):
+    def __init__(self, context, start_time, state, notifier):
 
         #
         # Public members
@@ -145,8 +163,11 @@ class Scheduler:
 
         self._sched_handle = None  # Whether a scheduling job is already scheduled or not
 
-        # Bidirectional queue to send notifications back to the Scheduler's owner
-        self._notification_queue = notification_queue
+        # Pair of queues to send notifications back to the Scheduler's owner
+        self._notify_front_queue = None
+        self._notify_back_queue = None
+
+        # Notifier callback to use if not running in a subprocess
         self._notifier = notifier
 
         self.resources = Resources(context.sched_builders, context.sched_fetchers, context.sched_pushers)
@@ -171,13 +192,16 @@ class Scheduler:
         # Hold on to the queues to process
         self.queues = queues
 
+        # Check if we're subprocessed
+        subprocessed = bool(self._notify_front_queue)
+
         # Ensure that we have a fresh new event loop, in case we want
         # to run another test in this thread.
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
         # Notify that the loop has been created
-        self._notify(Notification(NotificationType.RUNNING))
+        self._notify_front(Notification(NotificationType.RUNNING))
 
         # Add timeouts
         self.loop.call_later(1, self._tick)
@@ -185,25 +209,33 @@ class Scheduler:
         # Handle unix signals while running
         self._connect_signals()
 
-        # Watch casd while running to ensure it doesn't die
-        self._casd_process = casd_process_manager.process
-        _watcher = asyncio.get_child_watcher()
+        # If we're not in a subprocess, watch casd while running to ensure it doesn't die
+        if not subprocessed:
+            self._casd_process = casd_process_manager.process
+            _watcher = asyncio.get_child_watcher()
 
-        def abort_casd(pid, returncode):
-            asyncio.get_event_loop().call_soon(self._abort_on_casd_failure, pid, returncode)
+            def abort_casd(pid, returncode):
+                self.loop.call_soon(self._abort_on_casd_failure, pid, returncode)
 
-        _watcher.add_child_handler(self._casd_process.pid, abort_casd)
+            _watcher.add_child_handler(self._casd_process.pid, abort_casd)
+
+        # Add notification listener if in subprocess
+        self._start_listening()
 
         # Start the profiler
         with PROFILER.profile(Topics.SCHEDULER, "_".join(queue.action_name for queue in self.queues)):
             # Run the queues
             self._sched()
             self.loop.run_forever()
+            # Stop listening for notifications
+            self._stop_listening()
             self.loop.close()
 
-        # Stop watching casd
-        _watcher.remove_child_handler(self._casd_process.pid)
-        self._casd_process = None
+        # Stop watching casd if not subprocessed
+        if self._casd_process:
+            _watcher.remove_child_handler(self._casd_process.pid)
+            _watcher.close()
+            self._casd_process = None
 
         # Stop handling unix signals
         self._disconnect_signals()
@@ -212,7 +244,7 @@ class Scheduler:
         self.loop = None
 
         # Notify that the loop has been reset
-        self._notify(Notification(NotificationType.RUNNING))
+        self._notify_front(Notification(NotificationType.RUNNING))
 
         if failed:
             status = SchedStatus.ERROR
@@ -258,7 +290,7 @@ class Scheduler:
 
         # Notify the frontend that we're terminated as it might be
         # from an interactive prompt callback or SIGTERM
-        self._notify(Notification(NotificationType.TERMINATED))
+        self._notify_front(Notification(NotificationType.TERMINATED))
         self.loop.call_soon(self._terminate_jobs_real)
 
         # Block this until we're finished terminating jobs,
@@ -321,7 +353,7 @@ class Scheduler:
             job_status=status,
             element=element_info,
         )
-        self._notify(notification)
+        self._notify_front(notification)
         self._sched()
 
     # notify_messenger()
@@ -333,7 +365,21 @@ class Scheduler:
     #                       handler, as assigned by context's messenger.
     #
     def notify_messenger(self, message):
-        self._notify(Notification(NotificationType.MESSAGE, message=message))
+        self._notify_front(Notification(NotificationType.MESSAGE, message=message))
+
+    # set_last_task_error()
+    #
+    # Save the last error domain / reason reported from a child job or queue
+    # in the main process.
+    #
+    # Args:
+    #    domain (ErrorDomain): Enum for the domain from which the error occurred
+    #    reason (str): String identifier representing the reason for the error
+    #
+    def set_last_task_error(self, domain, reason: str) -> None:
+        task_error = domain, reason
+        notification = Notification(NotificationType.TASK_ERROR, task_error=task_error)
+        self._notify_front(notification)
 
     #######################################################
     #                  Local Private Methods              #
@@ -352,7 +398,7 @@ class Scheduler:
     #
     def _abort_on_casd_failure(self, pid, returncode):
         message = Message(MessageType.BUG, "buildbox-casd died while the pipeline was active.")
-        self._notify(Notification(NotificationType.MESSAGE, message=message))
+        self._notify_front(Notification(NotificationType.MESSAGE, message=message))
 
         self._casd_process.returncode = returncode
         self.terminate_jobs()
@@ -372,7 +418,7 @@ class Scheduler:
             job_action=job.action_name,
             time=self._state.elapsed_time(start_time=self._starttime),
         )
-        self._notify(notification)
+        self._notify_front(notification)
         job.start()
 
     # _sched_queue_jobs()
@@ -418,7 +464,7 @@ class Scheduler:
         # Make sure fork is allowed before starting jobs
         if not self.context.prepare_fork():
             message = Message(MessageType.BUG, "Fork is not allowed", detail="Background threads are active")
-            self._notify(Notification(NotificationType.MESSAGE, message=message))
+            self._notify_front(Notification(NotificationType.MESSAGE, message=message))
             self.terminate_jobs()
             return
 
@@ -468,7 +514,7 @@ class Scheduler:
             self._suspendtime = datetime.datetime.now()
             self.suspended = True
             # Notify that we're suspended
-            self._notify(Notification(NotificationType.SUSPENDED))
+            self._notify_front(Notification(NotificationType.SUSPENDED))
             for job in self._active_jobs:
                 job.suspend()
 
@@ -482,9 +528,9 @@ class Scheduler:
                 job.resume()
             self.suspended = False
             # Notify that we're unsuspended
-            self._notify(Notification(NotificationType.SUSPENDED))
+            self._notify_front(Notification(NotificationType.SUSPENDED))
             self._starttime += datetime.datetime.now() - self._suspendtime
-            self._notify(Notification(NotificationType.SCHED_START_TIME, time=self._starttime))
+            self._notify_front(Notification(NotificationType.SCHED_START_TIME, time=self._starttime))
             self._suspendtime = None
 
     # _interrupt_event():
@@ -499,8 +545,10 @@ class Scheduler:
         if self.terminated:
             return
 
+        # This event handler is only set when not running in a subprocess, scheduler
+        # to handle keyboard interrupt
         notification = Notification(NotificationType.INTERRUPT)
-        self._notify(notification)
+        self._notify_front(notification)
 
     # _terminate_event():
     #
@@ -528,17 +576,29 @@ class Scheduler:
 
     # _connect_signals():
     #
-    # Connects our signal handler event callbacks to the mainloop
+    # Connects our signal handler event callbacks to the mainloop. Signals
+    # only need to be connected if scheduler running in the 'main' process
     #
     def _connect_signals(self):
-        self.loop.add_signal_handler(signal.SIGINT, self._interrupt_event)
-        self.loop.add_signal_handler(signal.SIGTERM, self._terminate_event)
-        self.loop.add_signal_handler(signal.SIGTSTP, self._suspend_event)
+        if not self._notify_front_queue:
+            self.loop.add_signal_handler(signal.SIGINT, self._interrupt_event)
+            self.loop.add_signal_handler(signal.SIGTERM, self._terminate_event)
+            self.loop.add_signal_handler(signal.SIGTSTP, self._suspend_event)
 
+    # _disconnect_signals():
+    #
+    # Disconnects our signal handler event callbacks from the mainloop. Signals
+    # only need to be disconnected if scheduler running in the 'main' process
+    #
     def _disconnect_signals(self):
-        self.loop.remove_signal_handler(signal.SIGINT)
-        self.loop.remove_signal_handler(signal.SIGTSTP)
-        self.loop.remove_signal_handler(signal.SIGTERM)
+        if not self._notify_front_queue:
+            self.loop.remove_signal_handler(signal.SIGINT)
+            self.loop.remove_signal_handler(signal.SIGTSTP)
+            self.loop.remove_signal_handler(signal.SIGTERM)
+        else:
+            # If running in a subprocess, ignore SIGINT when disconnected
+            # under the interrupted click.prompt()
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     def _terminate_jobs_real(self):
         def kill_jobs():
@@ -553,7 +613,7 @@ class Scheduler:
 
     # Regular timeout for driving status in the UI
     def _tick(self):
-        self._notify(Notification(NotificationType.TICK))
+        self._notify_front(Notification(NotificationType.TICK))
         self.loop.call_later(1, self._tick)
 
     def _failure_retry(self, action_name, unique_id):
@@ -568,13 +628,14 @@ class Scheduler:
         queue._task_group.failed_tasks.remove(element._get_full_name())
         queue.enqueue([element])
 
-    def _notify(self, notification):
-        # Scheduler to Stream notifcations on right side
-        self._notification_queue.append(notification)
-        self._notifier()
+    def _notify_front(self, notification: Notification) -> None:
+        # Check if we need to call the notifier callback
+        if self._notify_front_queue:
+            self._notify_front_queue.put(notification)
+        else:
+            self._notifier(notification)
 
-    def _stream_notification_handler(self):
-        notification = self._notification_queue.popleft()
+    def _notification_handler(self, notification: Notification) -> None:
         if notification.notification_type == NotificationType.TERMINATE:
             self.terminate_jobs()
         elif notification.notification_type == NotificationType.QUIT:
@@ -585,10 +646,30 @@ class Scheduler:
             self.jobs_unsuspended()
         elif notification.notification_type == NotificationType.RETRY:
             self._failure_retry(notification.job_action, notification.element)
+        elif notification.notification_type == NotificationType.SIGTSTP:
+            self._suspend_event()
         else:
             # Do not raise exception once scheduler process is separated
             # as we don't want to pickle exceptions between processes
             raise ValueError("Unrecognised notification type received")
+
+    def _loop(self) -> None:
+        while not self._notify_back_queue.empty():
+            notification = self._notify_back_queue.get_nowait()
+            self._notification_handler(notification)
+
+    def _start_listening(self) -> None:
+        if self._notify_back_queue:
+            self.loop.add_reader(self._notify_back_queue._reader.fileno(), self._loop)
+
+    def _stop_listening(self) -> None:
+        if self._notify_back_queue:
+            self.loop.remove_reader(self._notify_back_queue._reader.fileno())
+
+    def _update_task_groups(self, name: str, complete_name: str, task: str, full_name: str = None) -> None:
+        if self._notify_front_queue:
+            changes = (name, complete_name, task, full_name)
+            self._notify_front(Notification(NotificationType.TASK_GROUPS, task_groups=changes))
 
     def __getstate__(self):
         # The only use-cases for pickling in BuildStream at the time of writing

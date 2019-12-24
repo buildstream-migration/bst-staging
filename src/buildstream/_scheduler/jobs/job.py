@@ -30,11 +30,10 @@ import sys
 import traceback
 
 # BuildStream toplevel imports
-from ..._exceptions import ImplError, BstError, set_last_task_error, SkipJob
+from ..._exceptions import ImplError, BstError, SkipJob
 from ..._message import Message, MessageType, unconditional_messages
 from ...types import FastEnum
-from ... import _signals, utils
-from .. import _multiprocessing
+from ... import _signals, utils, _multiprocessing
 
 from .jobpickler import pickle_child_job, do_pickled_child_job
 
@@ -477,7 +476,7 @@ class Job:
             # For regression tests only, save the last error domain / reason
             # reported from a child task in the main process, this global state
             # is currently managed in _exceptions.py
-            set_last_task_error(envelope.message["domain"], envelope.message["reason"])
+            self._scheduler.set_last_task_error(envelope.message["domain"], envelope.message["reason"])
         elif envelope.message_type is _MessageType.RESULT:
             assert self._result is None
             self._result = envelope.message

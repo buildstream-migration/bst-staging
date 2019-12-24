@@ -490,7 +490,11 @@ class LogLine(Widget):
 
         # Pipeline state
         text += self.content_profile.fmt("Pipeline\n", bold=True)
-        text += self.show_pipeline(stream.total_elements, context.log_element_format)
+        # Check if the output of show pipeline has already been generated for stream total elements
+        if stream.total_pipeline_render:
+            text += stream.total_pipeline_render
+        else:
+            text += self.show_pipeline(stream.total_elements, context.log_element_format)
         text += "\n"
 
         # Separator line before following output
@@ -542,8 +546,8 @@ class LogLine(Widget):
         text += self.content_profile.fmt("Pipeline Summary\n", bold=True)
         values = OrderedDict()
 
-        values["Total"] = self.content_profile.fmt(str(len(stream.total_elements)))
-        values["Session"] = self.content_profile.fmt(str(len(stream.session_elements)))
+        values["Total"] = self.content_profile.fmt(stream.len_total_elements)
+        values["Session"] = self.content_profile.fmt(stream.len_session_elements)
 
         processed_maxlen = 1
         skipped_maxlen = 1

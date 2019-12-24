@@ -20,6 +20,7 @@
 
 from enum import Enum, unique
 import os
+import sys
 
 # Disable pylint warnings for whole file here:
 # pylint: disable=global-statement
@@ -42,6 +43,16 @@ def get_last_exception():
     le = _last_exception
     _last_exception = None
     return le
+
+
+# set_last_exception()
+#
+# Sets the last exception from the main process, used if Stream is running a subprocess
+#
+def set_last_exception(exception: Exception) -> None:
+    if "BST_TEST_SUITE" in os.environ:
+        global _last_exception
+        _last_exception = exception
 
 
 # get_last_task_error()
@@ -239,10 +250,12 @@ class LoadErrorReason(Enum):
 #    reason (LoadErrorReason): machine readable error reason
 #
 # This exception is raised when loading or parsing YAML, or when
-# interpreting project YAML
+# interpreting project YAML. Although reason has a default value,
+# the arg must be assigned to a LoadErrorReason. This is a workaround
+# for unpickling subclassed Exception() classes.
 #
 class LoadError(BstError):
-    def __init__(self, message, reason, *, detail=None):
+    def __init__(self, message, reason=None, *, detail=None):
         super().__init__(message, detail=detail, domain=ErrorDomain.LOAD, reason=reason)
 
 
@@ -394,3 +407,19 @@ class ArtifactElementError(BstError):
 class ProfileError(BstError):
     def __init__(self, message, detail=None, reason=None):
         super().__init__(message, detail=detail, domain=ErrorDomain.PROFILE, reason=reason)
+
+
+# SubprocessException
+#
+# Used with 'tblib.pickling_suport' to pickle the exception & traceback
+# object thrown from subprocessing a Stream entry point, e.g. build().
+# The install() method of pickling_support must be called before attempting
+# to pickle this object.
+#
+class SubprocessException:
+    def __init__(self, exception):
+        self.exception = exception
+        _, _, self.tb = sys.exc_info()
+
+    def re_raise(self):
+        raise self.exception.with_traceback(self.tb)
