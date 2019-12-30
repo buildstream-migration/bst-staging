@@ -122,7 +122,7 @@ def test_artifact_delete_unbuilt_artifact(cli, tmpdir, datafiles):
     element = "target.bst"
 
     # delete it, just in case it's there
-    _ = cli.run(project=project, args=["artifact", "delete", element])
+    cli.run(project=project, args=["artifact", "delete", element])
 
     # Ensure the element is not cached
     assert cli.get_element_state(project, element) != "cached"

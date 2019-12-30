@@ -346,7 +346,7 @@ class SandboxChroot(Sandbox):
             os.mknod(target, mode=stat.S_IFCHR | dev.st_mode, device=target_dev)
 
         except PermissionError as e:
-            raise SandboxError("Could not create device {}, ensure that you have root permissions: {}")
+            raise SandboxError("Could not create device {}, ensure that you have root permissions: {}".format(target, e))
 
         except OSError as e:
             raise SandboxError("Could not create device {}: {}".format(target, e)) from e

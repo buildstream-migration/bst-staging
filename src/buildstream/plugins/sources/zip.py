@@ -152,7 +152,7 @@ class ZipSource(DownloadableFileSource):
                         try:
                             # Dont yield directory members which actually do
                             # exist in the archive
-                            _ = archive.getinfo(dir_component)
+                            archive.getinfo(dir_component)
                         except KeyError:
                             if dir_component != ".":
                                 yield dir_component
