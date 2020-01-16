@@ -18,6 +18,7 @@
 #  Authors:
 #        Tristan Van Berkom <tristan.vanberkom@codethink.co.uk>
 #        Chandan Singh <csingh43@bloomberg.net>
+#        Tom Mewett <tom.mewett@codethink.co.uk>
 
 """Abstract base class for source implementations that work with a Git repository"""
 
@@ -31,6 +32,7 @@ from configparser import RawConfigParser
 
 from .source import Source, SourceError, SourceFetcher
 from .types import Consistency, CoreWarnings
+from .node import MappingNode, ScalarNode, SequenceNode
 from . import utils
 from .types import FastEnum
 from .utils import move_atomic, DirectoryExistsError
@@ -38,6 +40,7 @@ from .utils import move_atomic, DirectoryExistsError
 GIT_MODULES = ".gitmodules"
 
 # Warnings
+WARN_TAG_NOT_FOUND = "tag-not-found"
 WARN_INCONSISTENT_SUBMODULE = "inconsistent-submodule"
 WARN_UNLISTED_SUBMODULE = "unlisted-submodule"
 WARN_INVALID_SUBMODULE = "invalid-submodule"
@@ -46,6 +49,25 @@ WARN_INVALID_SUBMODULE = "invalid-submodule"
 class _RefFormat(FastEnum):
     SHA1 = "sha1"
     GIT_DESCRIBE = "git-describe"
+
+
+# _has_matching_ref():
+#
+# Args:
+#     refs: Iterable of string (ref id, ref name) pairs
+#     tag (str): Tag name
+#     commit (str): Commit ID
+#
+# Returns:
+#     (bool): Whether the given tag is found in `refs` and points to ID `commit`
+#
+def _has_matching_ref(refs, tag, commit):
+    names = ("refs/tags/{tag}^{{}}".format(tag=tag), "refs/tags/{tag}".format(tag=tag))
+    return any(ref_commit == commit and ref_name in names for ref_commit, ref_name in refs)
+
+
+def _undescribe(rev):
+    return rev.split("-g")[-1]
 
 
 # This class represents a single Git repository. The Git source needs to account for
@@ -75,25 +97,16 @@ class _GitMirror(SourceFetcher):
         self.primary = primary
         self.mirror = os.path.join(source.get_mirror_directory(), utils.url_directory_name(url))
 
-    # Ensures that the mirror exists
-    def ensure(self, alias_override=None):
-
-        # Unfortunately, git does not know how to only clone just a specific ref,
-        # so we have to download all of those gigs even if we only need a couple
-        # of bytes.
+    # _ensure_repo():
+    #
+    # Ensures that the Git repository exists at the mirror location and is configured
+    # to fetch from the given URL
+    #
+    def _ensure_repo(self):
         if not os.path.exists(self.mirror):
-
-            # Do the initial clone in a tmpdir just because we want an atomic move
-            # after a long standing clone which could fail overtime, for now do
-            # this directly in our git directory, eliminating the chances that the
-            # system configured tmpdir is not on the same partition.
-            #
             with self.source.tempdir() as tmpdir:
-                url = self.source.translate_url(self.url, alias_override=alias_override, primary=self.primary)
                 self.source.call(
-                    [self.source.host_git, "clone", "--mirror", "-n", url, tmpdir],
-                    fail="Failed to clone git repository {}".format(url),
-                    fail_temporarily=True,
+                    [self.source.host_git, "init", "--bare", tmpdir], fail="Failed to initialise repository",
                 )
 
                 try:
@@ -101,55 +114,85 @@ class _GitMirror(SourceFetcher):
                 except DirectoryExistsError:
                     # Another process was quicker to download this repository.
                     # Let's discard our own
-                    self.source.status("{}: Discarding duplicate clone of {}".format(self.source, url))
+                    self.source.status("{}: Discarding duplicate repository".format(self.source))
                 except OSError as e:
                     raise SourceError(
-                        "{}: Failed to move cloned git repository {} from '{}' to '{}': {}".format(
-                            self.source, url, tmpdir, self.mirror, e
+                        "{}: Failed to move created repository from '{}' to '{}': {}".format(
+                            self.source, tmpdir, self.mirror, e
                         )
                     ) from e
 
-    def _fetch(self, alias_override=None):
-        url = self.source.translate_url(self.url, alias_override=alias_override, primary=self.primary)
+    def _fetch(self, url):
+        self._ensure_repo()
 
-        if alias_override:
-            remote_name = utils.url_directory_name(alias_override)
-            _, remotes = self.source.check_output(
-                [self.source.host_git, "remote"],
-                fail="Failed to retrieve list of remotes in {}".format(self.mirror),
+        fetch_all = False
+
+        # Work out whether we can fetch a specific tag: are we given a ref which
+        # 1. is in git-describe format
+        # 2. refers to an exact tag (is "...-0-g...")
+        # 3. is available on the remote and tags the specified commit?
+        if not self.ref:
+            fetch_all = True
+        else:
+            m = re.match(r"(?P<tag>.*)-0-g(?P<commit>.*)", self.ref)
+            if m is None:
+                fetch_all = True
+            else:
+                tag = m.group("tag")
+                commit = m.group("commit")
+
+                _, ls_remote = self.source.check_output(
+                    [self.source.host_git, "ls-remote", url],
+                    cwd=self.mirror,
+                    fail="Failed to list advertised remote refs from git repository {}".format(url),
+                )
+
+                refs = [line.split("\t", 1) for line in ls_remote.splitlines()]
+                has_ref = _has_matching_ref(refs, tag, commit)
+
+                if not has_ref:
+                    self.source.status(
+                        "{}: {} is not advertised on {}. Fetching all Git refs".format(self.source, self.ref, url)
+                    )
+                    fetch_all = True
+                else:
+                    exit_code = self.source.call(
+                        [
+                            self.source.host_git,
+                            "fetch",
+                            "--depth=1",
+                            url,
+                            "+refs/tags/{tag}:refs/tags/{tag}".format(tag=tag),
+                        ],
+                        cwd=self.mirror,
+                    )
+                    if exit_code != 0:
+                        self.source.status(
+                            "{}: Failed to fetch tag '{}' from {}. Fetching all Git refs".format(self.source, tag, url)
+                        )
+                        fetch_all = True
+
+        if fetch_all:
+            self.source.call(
+                [
+                    self.source.host_git,
+                    "fetch",
+                    "--prune",
+                    url,
+                    "+refs/heads/*:refs/heads/*",
+                    "+refs/tags/*:refs/tags/*",
+                ],
+                fail="Failed to fetch from remote git repository: {}".format(url),
+                fail_temporarily=True,
                 cwd=self.mirror,
             )
-            if remote_name not in remotes:
-                self.source.call(
-                    [self.source.host_git, "remote", "add", remote_name, url],
-                    fail="Failed to add remote {} with url {}".format(remote_name, url),
-                    cwd=self.mirror,
-                )
-        else:
-            remote_name = "origin"
-
-        self.source.call(
-            [
-                self.source.host_git,
-                "fetch",
-                remote_name,
-                "--prune",
-                "+refs/heads/*:refs/heads/*",
-                "+refs/tags/*:refs/tags/*",
-            ],
-            fail="Failed to fetch from remote git repository: {}".format(url),
-            fail_temporarily=True,
-            cwd=self.mirror,
-        )
 
     def fetch(self, alias_override=None):  # pylint: disable=arguments-differ
-        # Resolve the URL for the message
         resolved_url = self.source.translate_url(self.url, alias_override=alias_override, primary=self.primary)
 
         with self.source.timed_activity("Fetching from {}".format(resolved_url), silent_nested=True):
-            self.ensure(alias_override)
             if not self.has_ref():
-                self._fetch(alias_override)
+                self._fetch(resolved_url)
             self.assert_ref()
 
     def has_ref(self):
@@ -170,30 +213,96 @@ class _GitMirror(SourceFetcher):
                 "{}: expected ref '{}' was not found in git repository: '{}'".format(self.source, self.ref, self.url)
             )
 
-    def latest_commit_with_tags(self, tracking, track_tags=False):
+    # latest_commit():
+    #
+    # Args:
+    #     branch (str)
+    #
+    # Returns:
+    #     (str): The commit rev of the latest commit on the given branch
+    #
+    def latest_commit(self, branch):
         _, output = self.source.check_output(
-            [self.source.host_git, "rev-parse", tracking],
-            fail="Unable to find commit for specified branch name '{}'".format(tracking),
+            [self.source.host_git, "rev-parse", branch],
+            fail="Unable to find commit for specified branch name '{}'".format(branch),
             cwd=self.mirror,
         )
-        ref = output.rstrip("\n")
+        return output.strip()
 
-        if self.source.ref_format == _RefFormat.GIT_DESCRIBE:
-            # Prefix the ref with the closest tag, if available,
-            # to make the ref human readable
-            exit_code, output = self.source.check_output(
-                [self.source.host_git, "describe", "--tags", "--abbrev=40", "--long", ref], cwd=self.mirror
-            )
-            if exit_code == 0:
-                ref = output.rstrip("\n")
+    # latest_tagged():
+    #
+    # Args:
+    #     branch (str)
+    #     match (list): Optional list of glob pattern strings
+    #     exclude (list): Optional list of glob pattern strings
+    #
+    # For the behaviour of match and exclude, see the corresponding flags of `git describe`.
+    #
+    # Returns:
+    #     (str or None): A Git revision of the latest tagged commit on the given branch.
+    #                    Only tags with names meeting the criteria of `match` and `exclude` are considered.
+    #                    If no matching tags are found, None is returned.
+    #
+    def latest_tagged(self, branch, match=None, exclude=None):
+        pattern_args = []
+        if match:
+            for pat in match:
+                pattern_args += ["--match", pat]
+        if exclude:
+            for pat in exclude:
+                pattern_args += ["--exclude", pat]
 
-        if not track_tags:
-            return ref, []
+        exit_code, output = self.source.check_output(
+            [self.source.host_git, "describe", "--tags", "--abbrev=0", *pattern_args, branch], cwd=self.mirror
+        )
 
+        return output.strip() + "^{commit}" if exit_code == 0 else None
+
+    # date_of_commit():
+    #
+    # Args:
+    #     rev (str): A Git "commit-ish" rev
+    #
+    # Returns:
+    #     (int): The commit creation date and time, as seconds since the UNIX epoch
+    #
+    def date_of_commit(self, rev):
+        _, time = self.source.check_output([self.source.host_git, "show", "-s", "--format=%ct", rev], cwd=self.mirror)
+        return int(time.strip())
+
+    # describe():
+    #
+    # Args:
+    #     rev (str): A Git "commit-ish" rev
+    #
+    # Returns:
+    #     (str): A human-readable form of the rev as produced by git-describe,
+    #            or the rev itself if it cannot be described
+    #
+    def describe(self, rev):
+        exit_code, output = self.source.check_output(
+            [self.source.host_git, "describe", "--tags", "--abbrev=40", "--long", rev], cwd=self.mirror,
+        )
+
+        if exit_code == 0:
+            rev = output.strip()
+
+        return rev
+
+    # reachable_tags():
+    #
+    # Args:
+    #     rev (str): A Git "commit-ish" rev
+    #
+    # Returns:
+    #     (list): A list of (tag name (str), commit ref (str), annotated (bool))
+    #             triples describing a tag, its tagged commit and whether it's annotated
+    #
+    def reachable_tags(self, rev):
         tags = set()
         for options in [[], ["--first-parent"], ["--tags"], ["--tags", "--first-parent"]]:
             exit_code, output = self.source.check_output(
-                [self.source.host_git, "describe", "--abbrev=0", ref, *options], cwd=self.mirror
+                [self.source.host_git, "describe", "--abbrev=0", rev, *options], cwd=self.mirror
             )
             if exit_code == 0:
                 tag = output.strip()
@@ -207,7 +316,7 @@ class _GitMirror(SourceFetcher):
 
                 tags.add((tag, commit_ref.strip(), annotated))
 
-        return ref, list(tags)
+        return list(tags)
 
     def stage(self, directory):
         fullpath = os.path.join(directory, self.path)
@@ -444,7 +553,17 @@ class _GitSourceBase(Source):
     def configure(self, node):
         ref = node.get_str("ref", None)
 
-        config_keys = ["url", "track", "ref", "submodules", "checkout-submodules", "ref-format", "track-tags", "tags"]
+        config_keys = [
+            "url",
+            "track",
+            "ref",
+            "submodules",
+            "checkout-submodules",
+            "ref-format",
+            "track-latest-tag",
+            "track-tags",
+            "tags",
+        ]
         node.validate_keys(config_keys + Source.COMMON_CONFIG_KEYS)
 
         tags_node = node.get_sequence("tags", [])
@@ -454,15 +573,36 @@ class _GitSourceBase(Source):
         tags = self._load_tags(node)
         self.track_tags = node.get_bool("track-tags", default=False)
 
+        self.match_tags = []
+        self.exclude_tags = []
+        # Allow 'track-latest-tag' to be either a bool or a mapping configuring its sub-options
+        latest_tag = node.get_node("track-latest-tag", [ScalarNode, MappingNode], allow_none=True)
+        if isinstance(latest_tag, MappingNode):
+            latest_tag.validate_keys(["match", "exclude"])
+            self.match_tags += latest_tag.get_str_list("match", [])
+            self.exclude_tags += latest_tag.get_str_list("exclude", [])
+            self.track_latest_tag = True
+        elif latest_tag is not None:
+            self.track_latest_tag = latest_tag.as_bool()
+        else:
+            self.track_latest_tag = False
+
         self.original_url = node.get_str("url")
         self.mirror = self.BST_MIRROR_CLASS(self, "", self.original_url, ref, tags=tags, primary=True)
-        self.tracking = node.get_str("track", None)
+
+        track = node.get_node("track", [ScalarNode, SequenceNode], allow_none=True)
+        if isinstance(track, SequenceNode):
+            self.tracking = track.as_str_list()
+        elif track is not None:
+            self.tracking = [track.as_str()]
+        else:
+            self.tracking = []
 
         self.ref_format = node.get_enum("ref-format", _RefFormat, _RefFormat.SHA1)
 
         # At this point we now know if the source has a ref and/or a track.
         # If it is missing both then we will be unable to track or build.
-        if self.mirror.ref is None and self.tracking is None:
+        if self.mirror.ref is None and not self.tracking:
             raise SourceError(
                 "{}: Git sources require a ref and/or track".format(self), reason="missing-track-and-ref"
             )
@@ -494,10 +634,16 @@ class _GitSourceBase(Source):
         self.host_git = utils.get_host_tool("git")
 
     def get_unique_key(self):
+        ref = self.mirror.ref
+        if ref is not None:
+            # If the ref contains "-g" (is in git-describe format),
+            # only choose the part after, which is the commit ID
+            ref = _undescribe(ref)
+
         # Here we want to encode the local name of the repository and
         # the ref, if the user changes the alias to fetch the same sources
         # from another location, it should not affect the cache key.
-        key = [self.original_url, self.mirror.ref]
+        key = [self.original_url, ref]
         if self.mirror.tags:
             tags = {tag: (commit, annotated) for tag, commit, annotated in self.mirror.tags}
             key.append({"tags": tags})
@@ -567,13 +713,40 @@ class _GitSourceBase(Source):
         # Resolve the URL for the message
         resolved_url = self.translate_url(self.mirror.url)
         with self.timed_activity("Tracking {} from {}".format(self.tracking, resolved_url), silent_nested=True):
-            self.mirror.ensure()
-            self.mirror._fetch()
+            self.mirror._fetch(resolved_url)
 
-            # Update self.mirror.ref and node.ref from the self.tracking branch
-            ret = self.mirror.latest_commit_with_tags(self.tracking, self.track_tags)
+            if self.track_latest_tag:
+                revs = []
+                without_tags = []
+                for branch in self.tracking:
+                    rev = self.mirror.latest_tagged(branch, match=self.match_tags, exclude=self.exclude_tags)
+                    if rev is None:
+                        without_tags.append(branch)
+                    else:
+                        revs.append(rev)
 
-        return ret
+                if without_tags:
+                    self.warn(
+                        "{}: Cannot find tags on all track targets".format(self),
+                        warning_token=WARN_TAG_NOT_FOUND,
+                        detail="No matching tags were found on the following track targets:\n\n"
+                        + "\n".join(without_tags),
+                    )
+
+                if not revs:
+                    raise SourceError("{}: Failed to find any revisions to track".format(self))
+
+            else:
+                revs = [self.mirror.latest_commit(branch) for branch in self.tracking]
+
+            ref = max(revs, key=self.mirror.date_of_commit)
+
+            ref = self.mirror.describe(ref)  # normalise our potential mixture of rev formats
+            if self.ref_format == _RefFormat.SHA1:
+                ref = _undescribe(ref)
+
+            tags = self.mirror.reachable_tags(ref) if self.track_tags else []
+            return ref, tags
 
     def init_workspace(self, directory):
         with self.timed_activity('Setting up workspace "{}"'.format(directory), silent_nested=True):
@@ -647,31 +820,27 @@ class _GitSourceBase(Source):
         ref_in_track = False
         if self.tracking:
             _, branch = self.check_output(
-                [self.host_git, "branch", "--list", self.tracking, "--contains", self.mirror.ref],
+                [self.host_git, "branch", "--contains", self.mirror.ref, "--list", *self.tracking],
                 cwd=self.mirror.mirror,
             )
             if branch:
                 ref_in_track = True
             else:
                 _, tag = self.check_output(
-                    [self.host_git, "tag", "--list", self.tracking, "--contains", self.mirror.ref],
+                    [self.host_git, "tag", "--contains", self.mirror.ref, "--list", *self.tracking],
                     cwd=self.mirror.mirror,
                 )
                 if tag:
                     ref_in_track = True
 
             if not ref_in_track:
-                detail = (
-                    "The ref provided for the element does not exist locally "
-                    + "in the provided track branch / tag '{}'.\n".format(self.tracking)
-                    + "You may wish to track the element to update the ref from '{}' ".format(self.tracking)
-                    + "with `bst source track`,\n"
-                    + "or examine the upstream at '{}' for the specific ref.".format(self.mirror.url)
-                )
+                detail = """The ref provided for the element does not exist locally in any of the provided
+                tracking branches or tags. You may wish to track the element to update the ref
+                with `bst source track` or examine the upstream for a specific ref."""
 
                 self.warn(
-                    "{}: expected ref '{}' was not found in given track '{}' for staged repository: '{}'\n".format(
-                        self, self.mirror.ref, self.tracking, self.mirror.url
+                    "{}: expected ref '{}' was not found in given branches/tags for staged repository: '{}'\n".format(
+                        self, self.mirror.ref, self.mirror.url
                     ),
                     detail=detail,
                     warning_token=CoreWarnings.REF_NOT_IN_TRACK,

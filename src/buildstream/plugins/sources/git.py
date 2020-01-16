@@ -41,9 +41,28 @@ git - stage files from a git repository
    # in your project configuration is recommended.
    url: upstream:foo.git
 
-   # Optionally specify a symbolic tracking branch or tag, this
-   # will be used to update the 'ref' when refreshing the pipeline.
+   # Optionally specify a symbolic tracking branch, tag, or other Git
+   # revision. When tracking, the rev is checked and the 'ref' config option
+   # is updated to the commit it points to.
+   #
+   # 'track' can also be a list, in which case all the revs are checked and
+   # the overall latest commit is used.
+   #
    track: master
+
+   # Optionally specify whether to instead choose the latest tagged commit
+   # when tracking. If a tracking revision has no tags, it is ignored.
+   #
+   # This option can either be True/False or a mapping with the optional keys
+   # 'match' and 'exclude'. These sub-options provide a list of glob expressions
+   # to filter which tags are considered when tracking. All tags matching one
+   # or more 'match' patterns and zero 'exclude' patterns are considered.
+   #
+   track-latest-tag:
+      match:
+         - v1.*
+      exclude:
+         - v1.4-pre*
 
    # Optionally specify the ref format used for tracking.
    # The default is 'sha1' for the raw commit hash.
@@ -136,6 +155,9 @@ details on common configuration options for sources.
 **Configurable Warnings:**
 
 This plugin provides the following :ref:`configurable warnings <configurable_warnings>`:
+
+- ``git:tag-not-found`` - 'track-latest-tag' is enabled but one or more
+  tracking targets has no matching tags in its history.
 
 - ``git:inconsistent-submodule`` - A submodule present in the git repository's .gitmodules was never
   added with `git submodule add`.
