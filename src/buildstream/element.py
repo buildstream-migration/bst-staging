@@ -389,6 +389,7 @@ class Element(Plugin):
 
         *Since: 1.2*
         """
+        sandbox.prepared = True
 
     def assemble(self, sandbox: "Sandbox") -> str:
         """Assemble the output artifact
@@ -749,27 +750,27 @@ class Element(Plugin):
         workspace = self._get_workspace()
         context = self._get_context()
 
-        if self.__can_build_incrementally() and workspace.last_successful:
+        if self.__can_build_incrementally():
 
             # Try to perform an incremental build if the last successful
             # build is still in the artifact cache
             #
-            if self.__artifacts.contains(self, workspace.last_successful):
-                last_successful = Artifact(self, context, strong_key=workspace.last_successful)
-                # Get a dict of dependency strong keys
-                old_dep_keys = last_successful.get_metadata_dependencies()
-            else:
-                # Last successful build is no longer in the artifact cache,
-                # so let's reset it and perform a full build now.
-                workspace.prepared = False
-                workspace.last_successful = None
+            last_artifact = Artifact(self, context, strong_key=workspace.last_build)
+            # Get a dict of dependency strong keys
+            old_dep_keys = last_artifact.get_metadata_dependencies()
+        elif workspace:
+            # Last successful build is no longer in the artifact cache,
+            # so let's reset it and perform a full build now.
+            workspace.prepared = False
+            workspace.last_build = None
 
-                self.info("Resetting workspace state, last successful build is no longer in the cache")
+            self.info("Resetting workspace state, last successful build is no longer in the cache")
 
-                # In case we are staging in the main process
-                if utils._is_main_process():
-                    context.get_workspaces().save_config()
+            # In case we are staging in the main process
+            if utils._is_main_process():
+                context.get_workspaces().save_config()
 
+        # FIXME: for incremental builds, if the build deps have changed then we must fallback to a full build
         for dep in self.dependencies(scope):
             # If we are workspaced, and we therefore perform an
             # incremental build, we must ensure that we update the mtimes
@@ -1401,6 +1402,7 @@ class Element(Plugin):
         # perform incremental builds.
         if self.__can_build_incrementally():
             sandbox.mark_directory(directory)
+        # FIXME: incremental builds should merge the source into the last artifact before staging
 
         # Stage all sources that need to be copied
         sandbox_vroot = sandbox.get_virtual_directory()
@@ -1568,7 +1570,7 @@ class Element(Plugin):
         self.__update_cache_key_non_strict()
         self._update_ready_for_runtime_and_cached()
 
-        if self._get_workspace() and self._cached_success():
+        if self._get_workspace() and self._cached():
             assert utils._is_main_process(), "Attempted to save workspace configuration from child process"
             #
             # Note that this block can only happen in the
@@ -1580,7 +1582,14 @@ class Element(Plugin):
             #
             key = self._get_cache_key()
             workspace = self._get_workspace()
-            workspace.last_successful = key
+            workspace.last_build = key
+            # FIXME: get last dep hash and save to the workspace config
+            workspace.last_dep = None
+            # FIXME: merge the cached source into the cached buildtree
+            # if the digest of this is equivalent to the digest of the cached
+            # buildtree then the workspace was built incrementally (that is,
+            # the sourcetree is a subset of the buildtree)
+            workspace.built_incrementally = False
             workspace.clear_running_files()
             self._get_context().get_workspaces().save_config()
 
@@ -2362,7 +2371,32 @@ class Element(Plugin):
     #    (bool): Whether this element can be built incrementally
     #
     def __can_build_incrementally(self):
-        return bool(self._get_workspace())
+        # FIXME:
+        # in order to build incrementally the element must be:
+        # 1. workspaced
+        # 2. workspace config provides the previous key, previous artifact and previous dependency hash
+        # 3. the previous artifact is cached
+        # 4. the workspace advertises that artifact and key can merge (calculated after previous build and saved in the config
+        # 5. dependency hash is unchanged
+
+        # 1
+        workspace = self._get_workspace()
+        if workspace:
+            assert len(self.__sources) == 1
+            # 2
+            if not workspace.last_dep and workspace.last_build:
+                return False
+            # 4
+            if not workspace.built_incrementally:
+                return False
+            # 3
+            if not self.__artifacts.contains(self, workspace.last_build):
+                return False
+            # 5
+            # TODO
+            return True
+
+        return False
 
     # __configure_sandbox():
     #
@@ -2378,12 +2412,22 @@ class Element(Plugin):
     # Internal method for calling public abstract prepare() method.
     #
     def __prepare(self, sandbox):
-        # FIXME:
         # We need to ensure that the prepare() method is only called
         # once in workspaces, because the changes will persist across
         # incremental builds - not desirable, for example, in the case
         # of autotools' `./configure`.
-        self.prepare(sandbox)
+        workspace = self._get_workspace()
+        prepared = False
+        if workspace and workspace.prepared:
+            # FIXME: ideally we have already merged the workspace.last_build and
+            # can consider this prepared, for now we mark it as unprepared
+            prepared = False
+
+        if not prepared:
+            self.prepare(sandbox)
+
+        if workspace and sandbox.prepared:
+            workspace.prepared = True
 
     # __preflight():
     #
