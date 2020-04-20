@@ -32,7 +32,6 @@ Build elements
 
    elements/manual
    elements/autotools
-   elements/pip
 
 
 .. _plugins_sources:
@@ -55,7 +54,6 @@ information.
    sources/git
    sources/bzr
    sources/patch
-   sources/pip
 
 
 .. _plugins_external:
