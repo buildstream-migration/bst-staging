@@ -1,4 +1,4 @@
-coverage==4.4
+coverage==5.0.4
 pytest-cov==2.8.1
 pytest==5.4.2
 Cython==0.29.17
