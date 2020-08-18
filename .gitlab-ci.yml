@@ -343,6 +343,7 @@ docs:
 overnight-tests:
   <<: *overnight-tests-template
   script:
+  - sed -i '/artifacts:/,+1 d' freedesktop-sdk/project.conf
   - |
     cat > ~/.config/buildstream.conf << EOF
     # Get a lot of output in case of errors
@@ -352,10 +353,10 @@ overnight-tests:
     # Artifacts
     #
     artifacts:
-    - url: http://178.62.199.78:11001
+    - url: http://178.62.199.78:7981
       type: index
       push: true
-    - url: http://178.62.199.78:11002
+    - url: http://178.62.199.78:7982
       type: storage
       push: true
 
