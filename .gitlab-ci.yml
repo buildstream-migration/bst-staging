@@ -354,11 +354,7 @@ overnight-tests:
     artifacts:
     - url: http://178.62.199.78:11001
       type: index
-    - url: http://178.62.199.78:11001
-      type: index
       push: true
-    - url: http://178.62.199.78:11002
-      type: storage
     - url: http://178.62.199.78:11002
       type: storage
       push: true
