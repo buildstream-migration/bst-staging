@@ -190,6 +190,6 @@ class _CASBatchUpdate:
                         reason = None
 
                     raise CASRemoteError(
-                        "Failed to upload blob {}: {}".format(response.digest.hash, response.status.code),
+                        "Failed to upload blob {}: {}".format(response.digest.hash, response.status),
                         reason=reason,
                     )
