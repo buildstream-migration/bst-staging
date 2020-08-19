@@ -353,12 +353,16 @@ overnight-tests:
     # Artifacts
     #
     artifacts:
-    - url: http://178.62.199.78:7981
+    - url: https://178.62.199.78:11002
       type: index
       push: true
-    - url: http://178.62.199.78:7982
+      client-cert: $OVERNIGHT_CACHE_PUSH_CERT
+      client-key: $OVERNIGHT_CACHE_PUSH_KEY
+    - url: https://178.62.199.78:11002
       type: storage
       push: true
+      client-cert: $OVERNIGHT_CACHE_PUSH_CERT
+      client-key: $OVERNIGHT_CACHE_PUSH_KEY
 
     EOF
   - make -C freedesktop-sdk
