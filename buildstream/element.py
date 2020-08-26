@@ -79,9 +79,10 @@ import copy
 from collections import Mapping, OrderedDict
 from contextlib import contextmanager
 from enum import Enum
+from functools import partial
 import tempfile
-import time
 import shutil
+import string
 
 from . import _yaml
 from ._variables import Variables
@@ -97,7 +98,11 @@ from . import _signals
 from . import _site
 from ._platform import Platform
 from .sandbox._config import SandboxConfig
-from .types import _KeyStrength, CoreWarnings
+from .types import CoreWarnings, _KeyStrength
+
+from .storage.directory import Directory, VirtualDirectoryError
+from .storage._filebaseddirectory import FileBasedDirectory
+from .storage._casbaseddirectory import CasBasedDirectory
 
 
 class Scope(Enum):
@@ -577,6 +582,38 @@ class Element(Plugin):
         self.__assert_cached()
         return self.__compute_splits(include, exclude, orphans)
 
+    def get_artifact_name(self, key=None):
+        """Compute and return this element's full artifact name
+
+        Generate a full name for an artifact, including the project
+        namespace, element name and cache key.
+
+        This can also be used as a relative path safely, and
+        will normalize parts of the element name such that only
+        digits, letters and some select characters are allowed.
+
+        Args:
+           key (str): The element's cache key. Defaults to None
+
+        Returns:
+           (str): The relative path for the artifact
+        """
+        project = self._get_project()
+        if key is None:
+            key = self._get_cache_key()
+
+        assert key is not None
+
+        valid_chars = string.digits + string.ascii_letters + '-._'
+        element_name = ''.join([
+            x if x in valid_chars else '_'
+            for x in self.normal_name
+        ])
+
+        # Note that project names are not allowed to contain slashes. Element names containing
+        # a '/' will have this replaced with a '-' upon Element object instantiation.
+        return '{0}/{1}/{2}'.format(project.name, element_name, key)
+
     def stage_artifact(self, sandbox, *, path=None, include=None, exclude=None, orphans=True, update_mtimes=None):
         """Stage this element's output artifact in the sandbox
 
@@ -627,38 +664,37 @@ class Element(Plugin):
         self.__assert_cached()
 
         with self.timed_activity("Staging {}/{}".format(self.name, self._get_brief_display_key())):
-            # Get the extracted artifact
-            artifact_base, _ = self.__extract()
-            artifact = os.path.join(artifact_base, 'files')
+            artifact_vdir, _ = self.__get_artifact_directory()
+            files_vdir = artifact_vdir.descend('files')
 
             # Hard link it into the staging area
             #
-            basedir = sandbox.get_directory()
-            stagedir = basedir \
-                if path is None \
-                else os.path.join(basedir, path.lstrip(os.sep))
+            vbasedir = sandbox.get_virtual_directory()
+            vstagedir = vbasedir if path is None else vbasedir.descend(*path.lstrip(os.sep).split(os.sep), create=True)
 
-            files = list(self.__compute_splits(include, exclude, orphans))
+            split_filter = self.__split_filter_func(include, exclude, orphans)
 
             # We must not hardlink files whose mtimes we want to update
             if update_mtimes:
-                link_files = [f for f in files if f not in update_mtimes]
-                copy_files = [f for f in files if f in update_mtimes]
+                def link_filter(path):
+                    return ((split_filter is None or split_filter(path)) and
+                            path not in update_mtimes)
+
+                def copy_filter(path):
+                    return ((split_filter is None or split_filter(path)) and
+                            path in update_mtimes)
             else:
-                link_files = files
-                copy_files = []
+                link_filter = split_filter
 
-            link_result = utils.link_files(artifact, stagedir, files=link_files,
-                                           report_written=True)
-            copy_result = utils.copy_files(artifact, stagedir, files=copy_files,
-                                           report_written=True)
+            result = vstagedir.import_files(files_vdir, filter_callback=link_filter,
+                                            report_written=True, can_link=True)
 
-            cur_time = time.time()
+            if update_mtimes:
+                copy_result = vstagedir.import_files(files_vdir, filter_callback=copy_filter,
+                                                     report_written=True, update_mtime=True)
+                result = result.combine(copy_result)
 
-            for f in copy_result.files_written:
-                os.utime(os.path.join(stagedir, f), times=(cur_time, cur_time))
-
-        return link_result.combine(copy_result)
+            return result
 
     def stage_dependency_artifacts(self, sandbox, scope, *, path=None,
                                    include=None, exclude=None, orphans=True):
@@ -1353,41 +1389,45 @@ class Element(Plugin):
             sandbox._set_mount_source(directory, workspace.get_absolute_path())
 
         # Stage all sources that need to be copied
-        sandbox_root = sandbox.get_directory()
-        host_directory = os.path.join(sandbox_root, directory.lstrip(os.sep))
-        self._stage_sources_at(host_directory, mount_workspaces=mount_workspaces)
+        sandbox_vroot = sandbox.get_virtual_directory()
+        host_vdirectory = sandbox_vroot.descend(*directory.lstrip(os.sep).split(os.sep), create=True)
+        self._stage_sources_at(host_vdirectory, mount_workspaces=mount_workspaces)
 
     # _stage_sources_at():
     #
     # Stage this element's sources to a directory
     #
     # Args:
-    #     directory (str): An absolute path to stage the sources at
+    #     vdirectory (:class:`.storage.Directory`): A virtual directory object to stage sources into.
     #     mount_workspaces (bool): mount workspaces if True, copy otherwise
     #
-    def _stage_sources_at(self, directory, mount_workspaces=True):
+    def _stage_sources_at(self, vdirectory, mount_workspaces=True):
         with self.timed_activity("Staging sources", silent_nested=True):
 
-            if os.path.isdir(directory) and os.listdir(directory):
-                raise ElementError("Staging directory '{}' is not empty".format(directory))
+            if not isinstance(vdirectory, Directory):
+                vdirectory = FileBasedDirectory(vdirectory)
+            if not vdirectory.is_empty():
+                raise ElementError("Staging directory '{}' is not empty".format(vdirectory))
 
-            workspace = self._get_workspace()
-            if workspace:
-                # If mount_workspaces is set and we're doing incremental builds,
-                # the workspace is already mounted into the sandbox.
-                if not (mount_workspaces and self.__can_build_incrementally()):
-                    with self.timed_activity("Staging local files at {}"
-                                             .format(workspace.get_absolute_path())):
-                        workspace.stage(directory)
-            else:
-                # No workspace, stage directly
-                for source in self.sources():
-                    source._stage(directory)
+            with tempfile.TemporaryDirectory() as temp_staging_directory:
 
+                workspace = self._get_workspace()
+                if workspace:
+                    # If mount_workspaces is set and we're doing incremental builds,
+                    # the workspace is already mounted into the sandbox.
+                    if not (mount_workspaces and self.__can_build_incrementally()):
+                        with self.timed_activity("Staging local files at {}".format(workspace.get_absolute_path())):
+                            workspace.stage(temp_staging_directory)
+                else:
+                    # No workspace, stage directly
+                    for source in self.sources():
+                        source._stage(temp_staging_directory)
+
+                vdirectory.import_files(temp_staging_directory)
         # Ensure deterministic mtime of sources at build time
-        utils._set_deterministic_mtime(directory)
+        vdirectory.set_deterministic_mtime()
         # Ensure deterministic owners of sources at build time
-        utils._set_deterministic_user(directory)
+        vdirectory.set_deterministic_user()
 
     # _set_required():
     #
@@ -1517,7 +1557,7 @@ class Element(Plugin):
             with _signals.terminator(cleanup_rootdir), \
                 self.__sandbox(rootdir, output_file, output_file, self.__sandbox_config) as sandbox:  # nopep8
 
-                sandbox_root = sandbox.get_directory()
+                sandbox_vroot = sandbox.get_virtual_directory()
 
                 # By default, the dynamic public data is the same as the static public data.
                 # The plugin's assemble() method may modify this, though.
@@ -1547,81 +1587,90 @@ class Element(Plugin):
                     #
                     workspace = self._get_workspace()
                     if workspace and self.__staged_sources_directory:
-                        sandbox_root = sandbox.get_directory()
-                        sandbox_path = os.path.join(sandbox_root,
-                                                    self.__staged_sources_directory.lstrip(os.sep))
+                        sandbox_vroot = sandbox.get_virtual_directory()
+                        path_components = self.__staged_sources_directory.lstrip(os.sep).split(os.sep)
+                        sandbox_vpath = sandbox_vroot.descend(*path_components)
                         try:
-                            utils.copy_files(workspace.get_absolute_path(), sandbox_path)
+                            sandbox_vpath.import_files(workspace.get_absolute_path())
                         except UtilError as e:
                             self.warn("Failed to preserve workspace state for failed build sysroot: {}"
                                       .format(e))
 
                     raise
 
-                collectdir = os.path.join(sandbox_root, collect.lstrip(os.sep))
-                if not os.path.exists(collectdir):
-                    raise ElementError(
-                        "Directory '{}' was not found inside the sandbox, "
-                        "unable to collect artifact contents"
-                        .format(collect))
-
-                # At this point, we expect an exception was raised leading to
-                # an error message, or we have good output to collect.
-
-                # Create artifact directory structure
-                assembledir = os.path.join(rootdir, 'artifact')
-                filesdir = os.path.join(assembledir, 'files')
-                logsdir = os.path.join(assembledir, 'logs')
-                metadir = os.path.join(assembledir, 'meta')
-                os.mkdir(assembledir)
-                os.mkdir(filesdir)
-                os.mkdir(logsdir)
-                os.mkdir(metadir)
-
-                # Hard link files from collect dir to files directory
-                utils.link_files(collectdir, filesdir)
-
-                # Copy build log
-                log_filename = context.get_log_filename()
-                if log_filename:
-                    shutil.copyfile(log_filename, os.path.join(logsdir, 'build.log'))
-
-                # Store public data
-                _yaml.dump(_yaml.node_sanitize(self.__dynamic_public), os.path.join(metadir, 'public.yaml'))
-
-                # ensure we have cache keys
-                self._assemble_done()
-
-                # Store keys.yaml
-                _yaml.dump(_yaml.node_sanitize({
-                    'strong': self._get_cache_key(),
-                    'weak': self._get_cache_key(_KeyStrength.WEAK),
-                }), os.path.join(metadir, 'keys.yaml'))
-
-                # Store dependencies.yaml
-                _yaml.dump(_yaml.node_sanitize({
-                    e.name: e._get_cache_key() for e in self.dependencies(Scope.BUILD)
-                }), os.path.join(metadir, 'dependencies.yaml'))
-
-                # Store workspaced.yaml
-                _yaml.dump(_yaml.node_sanitize({
-                    'workspaced': True if self._get_workspace() else False
-                }), os.path.join(metadir, 'workspaced.yaml'))
-
-                # Store workspaced-dependencies.yaml
-                _yaml.dump(_yaml.node_sanitize({
-                    'workspaced-dependencies': [
-                        e.name for e in self.dependencies(Scope.BUILD)
-                        if e._get_workspace()
-                    ]
-                }), os.path.join(metadir, 'workspaced-dependencies.yaml'))
-
                 with self.timed_activity("Caching artifact"):
-                    artifact_size = utils._get_dir_size(assembledir)
-                    self.__artifacts.commit(self, assembledir, self.__get_cache_keys_for_commit())
+                    try:
+                        collectvdir = sandbox_vroot.descend(*collect.lstrip(os.sep).split(os.sep))
+                    except VirtualDirectoryError:
+                        raise ElementError(
+                            "Directory '{}' was not found inside the sandbox, "
+                            "unable to collect artifact contents"
+                            .format(collect))
 
-            # Finally cleanup the build dir
-            cleanup_rootdir()
+                    # At this point, we expect an exception was raised leading to
+                    # an error message, or we have good output to collect.
+
+                    context = self._get_context()
+
+                    assemblevdir = CasBasedDirectory(cas_cache=context.artifactcache.cas)
+                    logsvdir = assemblevdir.descend("logs", create=True)
+                    metavdir = assemblevdir.descend("meta", create=True)
+
+                    # Create artifact directory structure
+                    assembledir = os.path.join(rootdir, 'artifact')
+                    logsdir = os.path.join(assembledir, 'logs')
+                    metadir = os.path.join(assembledir, 'meta')
+                    os.mkdir(assembledir)
+                    os.mkdir(logsdir)
+                    os.mkdir(metadir)
+
+                    filesvdir = assemblevdir.descend("files", create=True)
+                    filesvdir.import_files(collectvdir)
+
+                    # Write some logs out to normal directories: logsdir and metadir
+                    # Copy build log
+                    log_filename = context.get_log_filename()
+                    if log_filename:
+                        shutil.copyfile(log_filename, os.path.join(logsdir, 'build.log'))
+
+                    # Store public data
+                    _yaml.dump(_yaml.node_sanitize(self.__dynamic_public), os.path.join(metadir, 'public.yaml'))
+
+                    # ensure we have cache keys
+                    self._assemble_done()
+
+                    # Store keys.yaml
+                    _yaml.dump(_yaml.node_sanitize({
+                        'strong': self._get_cache_key(),
+                        'weak': self._get_cache_key(_KeyStrength.WEAK),
+                    }), os.path.join(metadir, 'keys.yaml'))
+
+                    # Store dependencies.yaml
+                    _yaml.dump(_yaml.node_sanitize({
+                        e.name: e._get_cache_key() for e in self.dependencies(Scope.BUILD)
+                    }), os.path.join(metadir, 'dependencies.yaml'))
+
+                    # Store workspaced.yaml
+                    _yaml.dump(_yaml.node_sanitize({
+                        'workspaced': True if self._get_workspace() else False
+                    }), os.path.join(metadir, 'workspaced.yaml'))
+
+                    # Store workspaced-dependencies.yaml
+                    _yaml.dump(_yaml.node_sanitize({
+                        'workspaced-dependencies': [
+                            e.name for e in self.dependencies(Scope.BUILD)
+                            if e._get_workspace()
+                        ]
+                    }), os.path.join(metadir, 'workspaced-dependencies.yaml'))
+
+                    metavdir.import_files(metadir)
+                    logsvdir.import_files(logsdir)
+
+                    artifact_size = assemblevdir.get_size()
+                    self.__artifacts.commit(self, assemblevdir, self.__get_cache_keys_for_commit())
+
+                    # Finally cleanup the build dir
+                    cleanup_rootdir()
 
         return artifact_size
 
@@ -2317,15 +2366,61 @@ class Element(Plugin):
             for domain, rules in self.node_items(splits)
         }
 
-    def __compute_splits(self, include=None, exclude=None, orphans=True):
-        artifact_base, _ = self.__extract()
-        basedir = os.path.join(artifact_base, 'files')
+    # __split_filter():
+    #
+    # Returns True if the file with the specified `path` is included in the
+    # specified split domains. This is used by `__split_filter_func()` to create
+    # a filter callback.
+    #
+    # Args:
+    #    element_domains (list): All domains for this element
+    #    include (list): A list of domains to include files from
+    #    exclude (list): A list of domains to exclude files from
+    #    orphans (bool): Whether to include files not spoken for by split domains
+    #    path (str): The relative path of the file
+    #
+    # Returns:
+    #    (bool): Whether to include the specified file
+    #
+    def __split_filter(self, element_domains, include, exclude, orphans, path):
+        # Absolute path is required for matching
+        filename = os.path.join(os.sep, path)
 
-        # No splitting requested, just report complete artifact
+        include_file = False
+        exclude_file = False
+        claimed_file = False
+
+        for domain in element_domains:
+            if self.__splits[domain].match(filename):
+                claimed_file = True
+                if domain in include:
+                    include_file = True
+                if domain in exclude:
+                    exclude_file = True
+
+        if orphans and not claimed_file:
+            include_file = True
+
+        return include_file and not exclude_file
+
+    # __split_filter_func():
+    #
+    # Returns callable split filter function for use with `copy_files()`,
+    # `link_files()` or `Directory.import_files()`.
+    #
+    # Args:
+    #    include (list): An optional list of domains to include files from
+    #    exclude (list): An optional list of domains to exclude files from
+    #    orphans (bool): Whether to include files not spoken for by split domains
+    #
+    # Returns:
+    #    (callable): Filter callback that returns True if the file is included
+    #                in the specified split domains.
+    #
+    def __split_filter_func(self, include=None, exclude=None, orphans=True):
+        # No splitting requested, no filter needed
         if orphans and not (include or exclude):
-            for filename in utils.list_relative_paths(basedir):
-                yield filename
-            return
+            return None
 
         if not self.__splits:
             self.__init_splits()
@@ -2341,33 +2436,26 @@ class Element(Plugin):
         include = [domain for domain in include if domain in element_domains]
         exclude = [domain for domain in exclude if domain in element_domains]
 
-        # FIXME: Instead of listing the paths in an extracted artifact,
-        #        we should be using a manifest loaded from the artifact
-        #        metadata.
-        #
-        element_files = [
-            os.path.join(os.sep, filename)
-            for filename in utils.list_relative_paths(basedir)
-        ]
+        # The arguments element_domains, include, exclude, and orphans are
+        # the same for all files. Use `partial` to create a function with
+        # the required callback signature: a single `path` parameter.
+        return partial(self.__split_filter, element_domains, include, exclude, orphans)
 
-        for filename in element_files:
-            include_file = False
-            exclude_file = False
-            claimed_file = False
+    def __compute_splits(self, include=None, exclude=None, orphans=True):
+        filter_func = self.__split_filter_func(include=include, exclude=exclude, orphans=orphans)
 
-            for domain in element_domains:
-                if self.__splits[domain].match(filename):
-                    claimed_file = True
-                    if domain in include:
-                        include_file = True
-                    if domain in exclude:
-                        exclude_file = True
+        artifact_vdir, _ = self.__get_artifact_directory()
+        files_vdir = artifact_vdir.descend('files')
 
-            if orphans and not claimed_file:
-                include_file = True
+        element_files = files_vdir.list_relative_paths()
 
-            if include_file and not exclude_file:
-                yield filename.lstrip(os.sep)
+        if not filter_func:
+            # No splitting requested, just report complete artifact
+            yield from element_files
+        else:
+            for filename in element_files:
+                if filter_func(filename):
+                    yield filename
 
     def __file_is_whitelisted(self, path):
         # Considered storing the whitelist regex for re-use, but public data
@@ -2391,30 +2479,43 @@ class Element(Plugin):
             self.__whitelist_regex = re.compile(expression)
         return self.__whitelist_regex.match(path) or self.__whitelist_regex.match(os.path.join(os.sep, path))
 
-    # __extract():
+    # __get_extract_key():
     #
-    # Extract an artifact and return the directory
+    # Get the key used to extract the artifact
+    #
+    # Returns:
+    #    (str): The key
+    #
+    def __get_extract_key(self):
+
+        context = self._get_context()
+        key = self.__strict_cache_key
+
+        # Use weak cache key, if artifact is missing for strong cache key
+        # and the context allows use of weak cache keys
+        if not context.get_strict() and not self.__artifacts.contains(self, key):
+            key = self._get_cache_key(strength=_KeyStrength.WEAK)
+
+        return key
+
+    # __get_artifact_directory():
+    #
+    # Get a virtual directory for the artifact contents
     #
     # Args:
     #    key (str): The key for the artifact to extract,
     #               or None for the default key
     #
     # Returns:
-    #    (str): The path to the extracted artifact
+    #    (Directory): The virtual directory object
     #    (str): The chosen key
     #
-    def __extract(self, key=None):
+    def __get_artifact_directory(self, key=None):
 
         if key is None:
-            context = self._get_context()
-            key = self.__strict_cache_key
+            key = self.__get_extract_key()
 
-            # Use weak cache key, if artifact is missing for strong cache key
-            # and the context allows use of weak cache keys
-            if not context.get_strict() and not self.__artifacts.contains(self, key):
-                key = self._get_cache_key(strength=_KeyStrength.WEAK)
-
-        return (self.__artifacts.extract(self, key), key)
+        return (self.__artifacts.get_artifact_directory(self, key), key)
 
     # __get_artifact_metadata_keys():
     #
@@ -2430,7 +2531,7 @@ class Element(Plugin):
     def __get_artifact_metadata_keys(self, key=None):
 
         # Now extract it and possibly derive the key
-        artifact_base, key = self.__extract(key)
+        artifact_vdir, key = self.__get_artifact_directory(key)
 
         # Now try the cache, once we're sure about the key
         if key in self.__metadata_keys:
@@ -2438,8 +2539,8 @@ class Element(Plugin):
                     self.__metadata_keys[key]['weak'])
 
         # Parse the expensive yaml now and cache the result
-        meta_file = os.path.join(artifact_base, 'meta', 'keys.yaml')
-        meta = _yaml.load(meta_file)
+        meta_file = artifact_vdir._objpath(['meta', 'keys.yaml'])
+        meta = _yaml.load(meta_file, shortname='meta/keys.yaml')
         strong_key = meta['strong']
         weak_key = meta['weak']
 
@@ -2462,15 +2563,15 @@ class Element(Plugin):
     def __get_artifact_metadata_dependencies(self, key=None):
 
         # Extract it and possibly derive the key
-        artifact_base, key = self.__extract(key)
+        artifact_vdir, key = self.__get_artifact_directory(key)
 
         # Now try the cache, once we're sure about the key
         if key in self.__metadata_dependencies:
             return self.__metadata_dependencies[key]
 
         # Parse the expensive yaml now and cache the result
-        meta_file = os.path.join(artifact_base, 'meta', 'dependencies.yaml')
-        meta = _yaml.load(meta_file)
+        meta_file = artifact_vdir._objpath(['meta', 'dependencies.yaml'])
+        meta = _yaml.load(meta_file, shortname='meta/dependencies.yaml')
 
         # Cache it under both strong and weak keys
         strong_key, weak_key = self.__get_artifact_metadata_keys(key)
@@ -2491,15 +2592,15 @@ class Element(Plugin):
     def __get_artifact_metadata_workspaced(self, key=None):
 
         # Extract it and possibly derive the key
-        artifact_base, key = self.__extract(key)
+        artifact_vdir, key = self.__get_artifact_directory(key)
 
         # Now try the cache, once we're sure about the key
         if key in self.__metadata_workspaced:
             return self.__metadata_workspaced[key]
 
         # Parse the expensive yaml now and cache the result
-        meta_file = os.path.join(artifact_base, 'meta', 'workspaced.yaml')
-        meta = _yaml.load(meta_file)
+        meta_file = artifact_vdir._objpath(['meta', 'workspaced.yaml'])
+        meta = _yaml.load(meta_file, shortname='meta/workspaced.yaml')
         workspaced = meta['workspaced']
 
         # Cache it under both strong and weak keys
@@ -2521,15 +2622,15 @@ class Element(Plugin):
     def __get_artifact_metadata_workspaced_dependencies(self, key=None):
 
         # Extract it and possibly derive the key
-        artifact_base, key = self.__extract(key)
+        artifact_vdir, key = self.__get_artifact_directory(key)
 
         # Now try the cache, once we're sure about the key
         if key in self.__metadata_workspaced_dependencies:
             return self.__metadata_workspaced_dependencies[key]
 
         # Parse the expensive yaml now and cache the result
-        meta_file = os.path.join(artifact_base, 'meta', 'workspaced-dependencies.yaml')
-        meta = _yaml.load(meta_file)
+        meta_file = artifact_vdir._objpath(['meta', 'workspaced-dependencies.yaml'])
+        meta = _yaml.load(meta_file, shortname='meta/workspaced-dependencies.yaml')
         workspaced = meta['workspaced-dependencies']
 
         # Cache it under both strong and weak keys
@@ -2547,9 +2648,9 @@ class Element(Plugin):
         assert self.__dynamic_public is None
 
         # Load the public data from the artifact
-        artifact_base, _ = self.__extract()
-        metadir = os.path.join(artifact_base, 'meta')
-        self.__dynamic_public = _yaml.load(os.path.join(metadir, 'public.yaml'))
+        artifact_vdir, _ = self.__get_artifact_directory()
+        meta_file = artifact_vdir._objpath(['meta', 'public.yaml'])
+        self.__dynamic_public = _yaml.load(meta_file, shortname='meta/public.yaml')
 
     def __get_cache_keys_for_commit(self):
         keys = []

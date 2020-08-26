@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 #
-#  Copyright (C) 2017-2018 Codethink Limited
+#  Copyright (C) 2018 Bloomberg Finance LP
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Lesser General Public
@@ -15,7 +16,7 @@
 #  License along with this library. If not, see <http://www.gnu.org/licenses/>.
 #
 #  Authors:
-#        Tristan Van Berkom <tristan.vanberkom@codethink.co.uk>
+#        Jim MacArthur <jim.macarthur@codethink.co.uk>
 
-from .artifactcache import ArtifactCache, ArtifactCacheSpec, CACHE_SIZE_FILE
-from .artifactcache import ArtifactCacheUsage
+from ._filebaseddirectory import FileBasedDirectory
+from .directory import Directory

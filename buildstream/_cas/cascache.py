@@ -133,45 +133,43 @@ class CASCache():
         # This assumes that the repository doesn't have any dangling pointers
         return os.path.exists(refpath)
 
-    # extract():
+    # checkout():
     #
-    # Extract cached directory for the specified ref if it hasn't
-    # already been extracted.
+    # Checkout the specified directory digest.
     #
     # Args:
-    #     ref (str): The ref whose directory to extract
-    #     path (str): The destination path
+    #     dest (str): The destination path
+    #     tree (Digest): The directory digest to extract
+    #     can_link (bool): Whether we can create hard links in the destination
     #
-    # Raises:
-    #     CASError: In cases there was an OSError, or if the ref did not exist.
-    #
-    # Returns: path to extracted directory
-    #
-    def extract(self, ref, path):
-        tree = self.resolve_ref(ref, update_mtime=True)
+    def checkout(self, dest, tree, *, can_link=False):
+        os.makedirs(dest, exist_ok=True)
 
-        dest = os.path.join(path, tree.hash)
-        if os.path.isdir(dest):
-            # directory has already been extracted
-            return dest
+        directory = remote_execution_pb2.Directory()
 
-        with tempfile.TemporaryDirectory(prefix='tmp', dir=self.tmpdir) as tmpdir:
-            checkoutdir = os.path.join(tmpdir, ref)
-            self._checkout(checkoutdir, tree)
+        with open(self.objpath(tree), 'rb') as f:
+            directory.ParseFromString(f.read())
 
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            try:
-                os.rename(checkoutdir, dest)
-            except OSError as e:
-                # With rename it's possible to get either ENOTEMPTY or EEXIST
-                # in the case that the destination path is a not empty directory.
-                #
-                # If rename fails with these errors, another process beat
-                # us to it so just ignore.
-                if e.errno not in [errno.ENOTEMPTY, errno.EEXIST]:
-                    raise CASError("Failed to extract directory for ref '{}': {}".format(ref, e)) from e
+        for filenode in directory.files:
+            # regular file, create hardlink
+            fullpath = os.path.join(dest, filenode.name)
+            if can_link:
+                utils.safe_link(self.objpath(filenode.digest), fullpath)
+            else:
+                utils.safe_copy(self.objpath(filenode.digest), fullpath)
 
-        return dest
+            if filenode.is_executable:
+                os.chmod(fullpath, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
+                         stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+
+        for dirnode in directory.directories:
+            fullpath = os.path.join(dest, dirnode.name)
+            self.checkout(fullpath, dirnode.digest, can_link=can_link)
+
+        for symlinknode in directory.symlinks:
+            # symlink
+            fullpath = os.path.join(dest, symlinknode.name)
+            os.symlink(symlinknode.target, fullpath)
 
     # commit():
     #
@@ -640,32 +638,6 @@ class CASCache():
     ################################################
     #             Local Private Methods            #
     ################################################
-
-    def _checkout(self, dest, tree):
-        os.makedirs(dest, exist_ok=True)
-
-        directory = remote_execution_pb2.Directory()
-
-        with open(self.objpath(tree), 'rb') as f:
-            directory.ParseFromString(f.read())
-
-        for filenode in directory.files:
-            # regular file, create hardlink
-            fullpath = os.path.join(dest, filenode.name)
-            os.link(self.objpath(filenode.digest), fullpath)
-
-            if filenode.is_executable:
-                os.chmod(fullpath, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
-                         stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-
-        for dirnode in directory.directories:
-            fullpath = os.path.join(dest, dirnode.name)
-            self._checkout(fullpath, dirnode.digest)
-
-        for symlinknode in directory.symlinks:
-            # symlink
-            fullpath = os.path.join(dest, symlinknode.name)
-            os.symlink(symlinknode.target, fullpath)
 
     def _refpath(self, ref):
         return os.path.join(self.casdir, 'refs', 'heads', ref)
