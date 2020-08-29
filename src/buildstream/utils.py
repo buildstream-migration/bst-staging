@@ -1352,7 +1352,12 @@ def _call(*popenargs, terminate=False, **kwargs):
             # Some callers know that their subprocess can be
             # gracefully terminated, make an attempt first
             if terminate:
-                proc = psutil.Process(process.pid)
+                try:
+                    proc = psutil.Process(process.pid)
+                except psutil.NoSuchProcess:
+                    # Nothing to do, the process already terminated
+                    return
+
                 proc.terminate()
 
                 try:
