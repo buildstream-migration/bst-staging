@@ -130,27 +130,6 @@ def remote_services(request):
 
 
 #################################################
-# Setup for templated source tests              #
-#################################################
-register_repo_kind("git", Git, None)
-register_repo_kind("bzr", Bzr, None)
-register_repo_kind("tar", Tar, None)
-register_repo_kind("zip", Zip, None)
-
-
-# This hook enables pytest to collect the templated source tests from
-# buildstream.testing
-def pytest_sessionstart(session):
-    if session.config.getvalue("plugins"):
-        # Enable all plugins that implement the 'buildstream.tests.source_plugins' hook
-        for entrypoint in pkg_resources.iter_entry_points("buildstream.tests.source_plugins"):
-            module = entrypoint.load()
-            module.register_sources()
-
-    sourcetests_collection_hook(session)
-
-
-#################################################
 #             Isolated environment              #
 #################################################
 @pytest.fixture(scope="session", autouse=True)
